@@ -1,0 +1,6 @@
+@PrepKavitaPdf_HostAddress = http://localhost:5131
+
+GET {{PrepKavitaPdf_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

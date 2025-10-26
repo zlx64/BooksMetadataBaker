@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>PrepKavita PDF Upload</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Merriweather:wght@400;700&display=swap" rel="stylesheet">
+<style>
+:root { --bg:#f8f5f0; --panel:#fff; --border:#ddd4c7; --accent:#b8712b; --accent-hover:#965b1e; --text:#3e372e; --soft:#7a7065; --danger:#c0392b; --success:#2e7d4b; }
+*{box-sizing:border-box;}body{margin:0;font-family:Inter,system-ui,sans-serif;background:var(--bg);color:var(--text);}h1,h2,h3{font-family:Merriweather,serif;}
+.wrapper{max-width:980px;margin:0 auto;padding:1.4rem 1.1rem 2.6rem;}
+.section{background:var(--panel);border:1px solid var(--border);border-radius:18px;padding:1.4rem 1.3rem 1.8rem;margin-top:0;box-shadow:0 4px 14px rgba(0,0,0,.05);} .section h2{margin:.2rem 0 1rem;font-size:1.55rem;}
+.grid{display:grid;gap:1rem;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));}
+.box{background:#f3efe8;border:1px solid var(--border);border-radius:14px;padding:.9rem .9rem 1rem;display:flex;flex-direction:column;gap:.5rem;}
+.box label{font-size:.6rem;text-transform:uppercase;letter-spacing:.08em;font-weight:600;color:var(--soft);}
+input[type=text],select,input[type=file]{background:#fff;border:1px solid var(--border);border-radius:10px;padding:.55rem .7rem;font-size:.8rem;color:var(--text);}input[type=file]{padding:.4rem .7rem;}
+button.primary{background:var(--accent);color:#fff;border:none;border-radius:12px;padding:.7rem 1.15rem;font-size:.75rem;font-weight:600;cursor:pointer;letter-spacing:.5px;display:inline-flex;align-items:center;gap:.5rem;}button.primary:hover{background:var(--accent-hover);}button.secondary{background:#eee3d6;color:var(--text);border:1px solid var(--border);border-radius:12px;padding:.7rem 1rem;font-size:.7rem;font-weight:500;cursor:pointer;}button.secondary:hover{background:#fff;}
+#fileList{display:grid;gap:.45rem;margin-top:.35rem;}
+.file-item{background:#fff;border:1px solid var(--border);border-radius:10px;padding:.5rem .65rem .65rem;display:flex;flex-direction:column;gap:.35rem;font-size:.65rem;}
+.file-name{font-weight:600;word-break:break-word;}
+.bar-wrap{height:5px;background:#f0e5d8;border-radius:4px;overflow:hidden;}
+.bar{height:100%;width:0;background:var(--accent);transition:width .25s ease;}
+.table-wrap{overflow-x:auto;margin-top:.6rem;}
+.results-table{width:100%;border-collapse:collapse;font-size:.65rem;}
+.results-table th,.results-table td{padding:.5rem .55rem;border-bottom:1px solid var(--border);text-align:left;vertical-align:top;}
+.results-table th{font-size:.55rem;text-transform:uppercase;letter-spacing:.08em;color:var(--soft);font-weight:600;}
+.status-ok{color:var(--success);font-weight:600;}
+.status-fail{color:var(--danger);font-weight:600;}
+footer{text-align:center;padding:2.2rem .6rem 1.8rem;font-size:.6rem;color:var(--soft);}
+.details-btn{background:none;border:none;color:var(--accent);cursor:pointer;font-size:.6rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase;}
+.details-btn:hover{text-decoration:underline;}
+.meta-kv{display:grid;grid-template-columns:120px 1fr;gap:.25rem .75rem;font-size:.55rem;margin-top:.25rem;}
+.summary{margin-top:.8rem;background:#f3efe8;border:1px solid var(--border);border-radius:14px;padding:.8rem 1rem;font-size:.65rem;display:flex;flex-wrap:wrap;gap:1.1rem;}
+.summary span{display:flex;align-items:center;gap:.35rem;}
+.badge-small{background:var(--accent);color:#fff;border-radius:8px;padding:.15rem .55rem;font-size:.55rem;font-weight:600;letter-spacing:.05em;}
+.fade-enter-active,.fade-leave-active{transition:opacity .25s ease;} .fade-enter-from,.fade-leave-to{opacity:0;}
+@media (max-width:650px){ .section{padding:1.2rem 1rem 1.5rem;} .meta-kv{grid-template-columns:90px 1fr;} }
+</style>
+</head>
+<body>
+<div id="app" class="wrapper" v-cloak>
+  <section class="section" id="upload">
+    <h2>Upload PDFs</h2>
+    <form @submit.prevent="submit" @reset="reset">
+      <div class="grid">
+        <div class="box">
+          <label for="title">Title</label>
+          <input id="title" v-model.trim="title" name="Title" required placeholder="Series or Book Title" />
+          <small>Used for metadata search.</small>
+        </div>
+        <div class="box">
+          <label for="type">Type</label>
+          <select id="type" v-model="type" name="Type">
+            <option value="Book">Book</option>
+            <option value="Comic">Comic</option>
+            <option value="LightNovel" selected>Light Novel</option>
+            <option value="Manga">Manga</option>
+          </select>
+        </div>
+        <div class="box">
+          <label for="files">PDF Files</label>
+          <input id="files" ref="filesInput" @change="onFiles" type="file" accept="application/pdf" multiple required />
+          <div id="fileList">
+            <transition-group name="fade" tag="div">
+              <div class="file-item" v-for="f in fileProgress" :key="f.name">
+                <div class="file-name">{{ f.name }}</div>
+                <div class="bar-wrap"><div class="bar" :style="{width: f.displayPct + '%'}"></div></div>
+                <div style="display:flex;justify-content:space-between;font-size:.55rem;color:var(--soft);">
+                  <span>{{ formatSize(f.size) }}</span><span>{{ Math.round(f.displayPct) }}%</span>
+                </div>
+              </div>
+            </transition-group>
+          </div>
+          <small>Select one or more volumes.</small>
+        </div>
+      </div>
+      <div style="margin-top:1.1rem; display:flex; gap:.7rem; flex-wrap:wrap;">
+        <button type="submit" class="primary" :disabled="busy || !canSubmit">{{ busy? 'Uploading...' : 'Upload' }}</button>
+        <button type="reset" class="secondary" :disabled="busy">Reset</button>
+      </div>
+    </form>
+
+    <transition name="fade">
+      <div id="results" v-if="results.length" style="margin-top:1.5rem;">
+        <h3 style="font-family:Merriweather,serif; font-size:1.1rem; margin:0 0 .6rem;">Results</h3>
+        <div class="summary">
+          <span><strong>Total:</strong> {{ results.length }}</span>
+          <span><strong>Success:</strong> <span class="badge-small" style="background:var(--success)">{{ successCount }}</span></span>
+          <span><strong>Failed:</strong> <span class="badge-small" style="background:var(--danger)">{{ failCount }}</span></span>
+          <span v-if="hasMetadata"><strong>Metadata keys:</strong> {{ metadataKeys }}</span>
+        </div>
+        <div class="table-wrap">
+          <table class="results-table">
+            <thead><tr><th style="width:180px">File</th><th>Status</th><th>Attempts</th><th>Error / Metadata</th></tr></thead>
+            <tbody>
+              <tr v-for="r in results" :key="r.File">
+                <td>{{ r.File }}</td>
+                <td :class="r.Success? 'status-ok':'status-fail'">{{ r.Success? 'OK':'Fail' }}</td>
+                <td>{{ r.Attempts }}</td>
+                <td>
+                  <div v-if="r.ErrorMessage" style="max-width:260px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" :title="r.ErrorMessage">{{ r.ErrorMessage }}</div>
+                  <button v-if="r.AppliedMetadata" type="button" class="details-btn" @click="toggle(r)">{{ r._open? 'Hide' : 'Details' }}</button>
+                  <div v-if="r._open && r.AppliedMetadata" class="meta-kv">
+                    <template v-for="(v,k) in r.AppliedMetadata">
+                      <div>{{ k }}</div><div style="overflow-wrap:anywhere;">{{ v }}</div>
+                    </template>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </transition>
+  </section>
+  <footer>&copy; {{ year }} PrepKavita PDF Utility</footer>
+</div>
+<script src="https://unpkg.com/vue@3.4.21/dist/vue.global.prod.js"></script>
+<script>
+const { createApp, reactive, ref, computed } = Vue;
+createApp({
+  setup(){
+    const title = ref("");
+    const type = ref("LightNovel");
+    const filesInput = ref(null);
+    const fileProgress = reactive([]);
+    const totalSize = ref(0);
+    const busy = ref(false);
+    const results = reactive([]);
+    const metadata = ref({});
+    const year = new Date().getFullYear();
+
+    const canSubmit = computed(()=> title.value.trim().length>0 && fileProgress.length>0);
+    const metadataKeys = computed(()=> Object.keys(metadata.value).join(', '));
+    const successCount = computed(()=> results.filter(r=>r.Success).length);
+    const failCount = computed(()=> results.filter(r=>!r.Success).length);
+    const hasMetadata = computed(()=> Object.keys(metadata.value).length>0);
+
+    function onFiles(){
+      fileProgress.splice(0); totalSize.value = 0;
+      const files = Array.from(filesInput.value.files || []);
+      if(!files.length) return;
+      totalSize.value = files.reduce((a,f)=>a+f.size,0) || 1;
+      let cursor = 0;
+      for(const f of files){
+        const prop = f.size / totalSize.value;
+        fileProgress.push({ name:f.name, size:f.size, start:cursor, end:cursor+prop, displayPct:0 });
+        cursor += prop;
+      }
+    }
+    function formatSize(bytes){ if(bytes<1024) return bytes+' B'; if(bytes<1048576) return (bytes/1024).toFixed(1)+' KB'; return (bytes/1048576).toFixed(2)+' MB'; }
+    function submit(){ if(!canSubmit.value) return; busy.value=true; results.splice(0); metadata.value={}; const fd=new FormData(); fd.append('Title',title.value); fd.append('Type',type.value); for(const f of filesInput.value.files) fd.append('files',f); const xhr=new XMLHttpRequest(); xhr.open('POST','/api/upload'); xhr.upload.onprogress=e=>{ if(!e.lengthComputable) return; const pct=e.loaded/e.total; for(const fp of fileProgress){ const local=pct<=fp.start?0:(pct>=fp.end?1:(pct-fp.start)/(fp.end-fp.start)); fp.displayPct=local*100; } }; xhr.onreadystatechange=()=>{ if(xhr.readyState===4){ busy.value=false; if(xhr.status>=200 && xhr.status<300){ try{ const data=JSON.parse(xhr.responseText); handleResult(data);}catch{ alert('Parse error'); } } else { alert('Upload failed'); } } }; xhr.send(fd); }
+    function handleResult(data){ metadata.value=data.Metadata||{}; results.splice(0); (data.Files||[]).forEach(f=>{ f._open=false; results.push(f); }); }
+    function toggle(r){ r._open=!r._open; }
+    function reset(){ title.value=''; type.value='LightNovel'; fileProgress.splice(0); totalSize.value=0; results.splice(0); metadata.value={}; if(filesInput.value) filesInput.value.value=''; }
+    return { title,type,filesInput,fileProgress,totalSize,busy,results,metadata,year,canSubmit,metadataKeys,successCount,failCount,hasMetadata,onFiles,submit,reset,formatSize,toggle };
+  }
+}).mount('#app');
+</script>
+</body>
+</html>
