@@ -1,4 +1,4 @@
-// PrepKavita PDF Upload UI Logic
+// PrepKavita PDF Upload UI Logic (Updated for per-file processing uploads)
 // ---------------------------------------------------------------------
 // Responsibilities:
 // - Manage form state (title, type, selected files)
@@ -19,42 +19,40 @@
       const title = ref("");
       const type = ref("LightNovel");
       const filesInput = ref(null);
-      const fileProgress = reactive([]); // [{ name,size,start,end,displayPct }]
-      const totalSize = ref(0);
+      const pendingFiles = reactive([]); // [{ file, name, size, progress, status, error, attempts, resultMeta }]
       const busy = ref(false);
-      const results = reactive([]); // API response mapped list
-      const metadata = ref({});
+      const metadataUnion = ref({}); // union of metadata returned (first successful)
       const year = new Date().getFullYear();
 
       // -----------------------------------------------------------------
       // Derived State
       // -----------------------------------------------------------------
       // Allow upload when at least one file selected; title will still be HTML required on submit
-      const canSubmit = computed(()=> fileProgress.length > 0);
-      const metadataKeys = computed(()=> Object.keys(metadata.value).join(', '));
-      const successCount = computed(()=> results.filter(r=>r.Success).length);
-      const failCount = computed(()=> results.filter(r=>!r.Success).length);
-      const hasMetadata = computed(()=> Object.keys(metadata.value).length>0);
+      const canSubmit = computed(()=> pendingFiles.length > 0 && title.value.trim().length>0);
+      const successCount = computed(()=> pendingFiles.filter(f=>f.status==='success').length);
+      const failCount = computed(()=> pendingFiles.filter(f=>f.status==='error').length);
+      const hasMetadata = computed(()=> Object.keys(metadataUnion.value).length>0);
+      const metadataKeys = computed(()=> Object.keys(metadataUnion.value).join(', '));
 
       // -----------------------------------------------------------------
       // Handlers
       // -----------------------------------------------------------------
       function onFiles(){
-        fileProgress.splice(0); totalSize.value = 0;
+        pendingFiles.splice(0);
         const files = Array.from(filesInput.value?.files || []);
-        if(!files.length) return;
-        totalSize.value = files.reduce((a,f)=>a+f.size,0) || 1;
-        let cursor = 0;
         for(const f of files){
-          const proportion = f.size / totalSize.value;
-          fileProgress.push({
+          if(!f.name.toLowerCase().endsWith('.pdf')) continue;
+          pendingFiles.push({
+            file: f,
             name: f.name,
             size: f.size,
-            start: cursor,
-            end: cursor + proportion,
-            displayPct: 0
+            progress: 0,
+            status: 'pending', // pending | uploading | processing | success | error
+            error: null,
+            attempts: 0,
+            resultMeta: null,
+            _open:false
           });
-          cursor += proportion;
         }
       }
 
@@ -66,70 +64,97 @@
 
       function submit(){
         if(!canSubmit.value) return;
-        // Browsers will enforce required Title automatically now.
-        busy.value = true; results.splice(0); metadata.value = {};
-        const fd = new FormData();
-        fd.append('Title', title.value);
-        fd.append('Type', type.value);
-        for(const f of filesInput.value.files) fd.append('files', f);
+        busy.value = true; metadataUnion.value = {};
+        // Limit to 4 concurrent uploads as requested
+        const queue = [...pendingFiles];
+        let active = 0;
+        const maxConcurrent = 4;
 
-        const xhr = new XMLHttpRequest();
-        xhr.open('POST', '/api/upload');
-
-        // Upload progress mapping to each file proportionally
-        xhr.upload.onprogress = e => {
-          if(!e.lengthComputable) return;
-          const pct = e.loaded / e.total; // 0..1 overall
-          for(const fp of fileProgress){
-            const local = pct <= fp.start ? 0 : (pct >= fp.end ? 1 : (pct - fp.start) / (fp.end - fp.start));
-            fp.displayPct = local * 100;
+        function next(){
+          if(active >= maxConcurrent) return;
+          const item = queue.find(f=> f.status==='pending');
+          if(!item){
+            if(active===0) busy.value = false; // all done
+            return;
           }
-        };
+          item.status='uploading'; active++;
+          uploadOne(item).finally(()=>{ active--; next(); });
+          next();
+        }
 
-        xhr.onreadystatechange = () => {
-          if(xhr.readyState !== 4) return;
-          busy.value = false;
-          if(xhr.status >= 200 && xhr.status < 300){
+        next();
+      }
+
+      function uploadOne(entry){
+        return new Promise((resolve)=>{
+          const fd = new FormData();
+          fd.append('Title', title.value);
+          fd.append('Type', type.value);
+          fd.append('file', entry.file);
+          const xhr = new XMLHttpRequest();
+          xhr.open('POST', '/api/upload');
+          xhr.upload.onprogress = e => {
+            if(!e.lengthComputable) return;
+            entry.progress = Math.round((e.loaded / e.total) * 100);
+          };
+          xhr.onreadystatechange = () => {
+            if(xhr.readyState !== 4) return;
+            entry.status='processing'; // upload finished, waiting parse
             try {
-              const data = JSON.parse(xhr.responseText);
-              handleResult(data);
+              if(xhr.status>=200 && xhr.status<300){
+                const data = JSON.parse(xhr.responseText);
+                handleSingleResult(entry, data);
+              } else {
+                entry.status='error';
+                entry.error = 'Upload failed HTTP ' + xhr.status;
+              }
             } catch(err){
-              console.error('Parse error', err);
-              alert('Response parse error');
+              entry.status='error';
+              entry.error = 'Parse error';
             }
-          } else {
-            console.error('Upload failed', xhr.status, xhr.responseText);
-            alert('Upload failed');
-          }
-        };
-
-        xhr.send(fd);
+            if(entry.status==='success') entry.progress = 100; // processing done
+            resolve();
+          };
+          xhr.send(fd);
+        });
       }
 
-      function handleResult(data){
-        metadata.value = data.Metadata || {};
-        results.splice(0);
-        (data.Files || []).forEach(f => { f._open = false; results.push(f); });
+      function handleSingleResult(entry, data){
+        // Support camelCase (default) and PascalCase
+        const filesArr = data.Files || data.files || [];
+        const fileResult = filesArr[0];
+        if(!fileResult){
+          entry.status='error';
+          entry.error='No file result';
+          return;
+        }
+        const success = fileResult.Success !== undefined ? fileResult.Success : fileResult.success;
+        entry.attempts = fileResult.Attempts !== undefined ? fileResult.Attempts : (fileResult.attempts || 0);
+        entry.resultMeta = fileResult.AppliedMetadata || fileResult.appliedMetadata || null;
+        if(!Object.keys(metadataUnion.value).length){
+          metadataUnion.value = (data.Metadata || data.metadata || entry.resultMeta || {});
+        }
+        if(success){
+          entry.status='success'; entry.error=null;
+        } else {
+          entry.status='error';
+          entry.error = fileResult.ErrorMessage || fileResult.errorMessage || 'Unknown error';
+        }
       }
 
-      function toggle(r){ r._open = !r._open; }
+      function toggle(entry){ entry._open = !entry._open; }
 
       function reset(){
-        title.value = '';
-        type.value = 'LightNovel';
-        fileProgress.splice(0);
-        totalSize.value = 0;
-        results.splice(0);
-        metadata.value = {};
-        if(filesInput.value) filesInput.value.value='';
+        title.value=''; type.value='LightNovel'; metadataUnion.value={};
+        pendingFiles.splice(0); if(filesInput.value) filesInput.value.value='';
       }
 
       // -----------------------------------------------------------------
       // Expose to template
       // -----------------------------------------------------------------
       return {
-        title, type, filesInput, fileProgress, totalSize, busy, results, metadata, year,
-        canSubmit, metadataKeys, successCount, failCount, hasMetadata,
+        title, type, filesInput, pendingFiles, busy, metadataUnion, year,
+        canSubmit, successCount, failCount, hasMetadata, metadataKeys,
         onFiles, submit, reset, formatSize, toggle
       };
     }

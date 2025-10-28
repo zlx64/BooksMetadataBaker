@@ -26,7 +26,7 @@
                             <option value="Manga">Manga</option>
                         </select>
                         <div style="margin-top:1.1rem; display:flex; gap:.7rem; flex-wrap:wrap;">
-                            <button type="submit" class="primary" :disabled="busy || !canSubmit">{{ busy? 'Uploading...' : 'Upload' }}</button>
+                            <button type="submit" class="primary" :disabled="busy || !canSubmit">{{ busy? 'Working...' : 'Upload & Process' }}</button>
                             <button type="reset" class="secondary" :disabled="busy">Reset</button>
                         </div>
                     </div>
@@ -35,50 +35,43 @@
                         <input id="files" ref="filesInput" @change="onFiles" type="file" accept="application/pdf" multiple required />
                         <div id="fileList">
                             <transition-group name="fade" tag="div">
-                                <div class="file-item" v-for="f in fileProgress" :key="f.name">
+                                <div class="file-item" v-for="f in pendingFiles" :key="f.name" :class="{'error-item': f.status==='error'}">
                                     <div class="file-name">{{ f.name }}</div>
-                                    <div class="bar-wrap"><div class="bar" :style="{width: f.displayPct + '%'}"></div></div>
+                                    <div class="bar-wrap"><div class="bar" :style="{width: f.progress + '%'}"></div></div>
                                     <div style="display:flex;justify-content:space-between;font-size:.55rem;color:var(--soft);">
-                                        <span>{{ formatSize(f.size) }}</span><span>{{ Math.round(f.displayPct) }}%</span>
+                                        <span>{{ formatSize(f.size) }}</span><span>{{ f.progress }}%</span>
+                                    </div>
+                                    <div style="font-size:.55rem;">
+                                        <strong>Status:</strong>
+                                        <span v-if="f.status==='pending'">Pending</span>
+                                        <span v-else-if="f.status==='uploading'">Uploading...</span>
+                                        <span v-else-if="f.status==='processing'">Processing...</span>
+                                        <span v-else-if="f.status==='success'" style="color:var(--success)">Success</span>
+                                        <span v-else-if="f.status==='error'" style="color:var(--danger)">Error</span>
+                                    </div>
+                                    <div v-if="f.error" style="color:var(--danger); font-size:.55rem; word-break:break-word;">{{ f.error }}</div>
+                                    <button v-if="f.resultMeta" type="button" class="details-btn" @click="toggle(f)">{{ f._open? 'Hide' : 'Details' }}</button>
+                                    <div v-if="f._open && f.resultMeta" class="meta-kv">
+                                        <template v-for="(v,k) in f.resultMeta">
+                                            <div>{{ k }}</div><div style="overflow-wrap:anywhere;">{{ v }}</div>
+                                        </template>
                                     </div>
                                 </div>
                             </transition-group>
                         </div>
-                        <small>Select one or more volumes.</small>
+                        <small>Uploads are processed one by one (up to 4 simultaneously). Progress completes only after metadata attempts finish.</small>
                     </div>
                 </div>
             </form>
 
             <transition name="fade">
-                <div id="results" v-if="results.length" style="margin-top:1.5rem;">
-                    <h3 style="font-family:Merriweather,serif; font-size:1.1rem; margin:0 0 .6rem;">Results</h3>
+                <div id="results" v-if="pendingFiles.length" style="margin-top:1.5rem;">
+                    <h3 style="font-family:Merriweather,serif; font-size:1.1rem; margin:0 0 .6rem;">Summary</h3>
                     <div class="summary">
-                        <span><strong>Total:</strong> {{ results.length }}</span>
+                        <span><strong>Total:</strong> {{ pendingFiles.length }}</span>
                         <span><strong>Success:</strong> <span class="badge-small" style="background:var(--success)">{{ successCount }}</span></span>
                         <span><strong>Failed:</strong> <span class="badge-small" style="background:var(--danger)">{{ failCount }}</span></span>
                         <span v-if="hasMetadata"><strong>Metadata keys:</strong> {{ metadataKeys }}</span>
-                    </div>
-                    <div class="table-wrap">
-                        <table class="results-table">
-                            <thead><tr><th style="width:180px">File</th><th>Status</th><th>Attempts</th><th>Error / Metadata</th></tr></thead>
-                            <tbody>
-                                <tr v-for="r in results" :key="r.File">
-                                    <td>{{ r.File }}</td>
-                                    <td :class="r.Success? 'status-ok':'status-fail'">{{ r.Success? 'OK':'Fail' }}</td>
-                                    <td>{{ r.Attempts }}</td>
-                                    <td>
-                                        <div v-if="r.ErrorMessage" style="max-width:260px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" :title="r.ErrorMessage">{{ r.ErrorMessage }}</div>
-                                        <button v-if="r.AppliedMetadata" type="button" class="details-btn" @click="toggle(r)">{{ r._open? 'Hide' : 'Details' }}</button>
-                                        <div v-if="r._open && r.AppliedMetadata" class="meta-kv">
-                                            <template v-for="(v,k) in r.AppliedMetadata">
-                                                <div>{{ k }}</div>
-                                                <div style="overflow-wrap:anywhere;">{{ v }}</div>
-                                            </template>
-                                        </div>
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
                     </div>
                 </div>
             </transition>

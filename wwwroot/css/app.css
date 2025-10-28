@@ -234,6 +234,8 @@ footer {
 .fade-enter-active, .fade-leave-active { transition: opacity .25s ease; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
 
+.error-item { border-color: var(--danger); }
+
 @media (max-width: 650px) {
   .section { padding: 1.2rem 1rem 1.5rem; }
   .meta-kv { grid-template-columns: 90px 1fr; }
