@@ -6,13 +6,13 @@ namespace PrepKavitaPdf.Services;
 
 public class GoogleBooksService
 {
-    private readonly HttpClient _http;
-    private readonly string _apiKey;
+    private readonly HttpClient http;
+    private readonly string apiKey;
 
     public GoogleBooksService(HttpClient http, IConfiguration config)
     {
-        _http = http;
-        _apiKey = config["PdfLibrary:GoogleBooks:ApiKey"] ?? string.Empty;
+        this.http = http;
+        apiKey = config["PdfLibrary:GoogleBooks:ApiKey"] ?? string.Empty;
     }
 
     public async Task<Dictionary<string,string>> TryFetchAsync(string title, BookType type, CancellationToken ct)
@@ -20,8 +20,8 @@ public class GoogleBooksService
         if (type is not BookType.Book && type is not BookType.LightNovel) return new();
         try
         {
-            var url = $"?q={Uri.EscapeDataString(title)}&maxResults=1&key={_apiKey}";
-            using var resp = await _http.GetAsync(url, ct);
+            var url = $"?q={Uri.EscapeDataString(title)}&maxResults=1&key={apiKey}";
+            using var resp = await http.GetAsync(url, ct);
             resp.EnsureSuccessStatusCode();
             using var stream = await resp.Content.ReadAsStreamAsync(ct);
             using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);

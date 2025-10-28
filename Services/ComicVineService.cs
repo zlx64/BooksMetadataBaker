@@ -5,13 +5,13 @@ namespace PrepKavitaPdf.Services;
 
 public class ComicVineService
 {
-    private readonly HttpClient _http;
-    private readonly string _apiKey;
+    private readonly HttpClient http;
+    private readonly string apiKey;
 
     public ComicVineService(HttpClient http, IConfiguration config)
     {
-        _http = http;
-        _apiKey = config["PdfLibrary:ComicVine:ApiKey"] ?? string.Empty;
+        this.http = http;
+        apiKey = config["PdfLibrary:ComicVine:ApiKey"] ?? string.Empty;
     }
 
     public async Task<Dictionary<string,string>> TryFetchAsync(string title, BookType type, CancellationToken ct)
@@ -19,8 +19,8 @@ public class ComicVineService
         if (type is not BookType.Comic) return new();
         try
         {
-            var url = $"search/?api_key={_apiKey}&format=json&query={Uri.EscapeDataString(title)}&resources=volume";
-            using var resp = await _http.GetAsync(url, ct);
+            var url = $"search/?api_key={apiKey}&format=json&query={Uri.EscapeDataString(title)}&resources=volume";
+            using var resp = await http.GetAsync(url, ct);
             resp.EnsureSuccessStatusCode();
             using var stream = await resp.Content.ReadAsStreamAsync(ct);
             using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);

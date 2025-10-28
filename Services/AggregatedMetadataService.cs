@@ -4,22 +4,22 @@ namespace PrepKavitaPdf.Services;
 
 public class AggregatedMetadataService : IAggregatedMetadataService
 {
-    private readonly AniListService _ani;
-    private readonly GoogleBooksService _google;
-    private readonly ComicVineService _comic;
+    private readonly AniListService ani;
+    private readonly GoogleBooksService google;
+    private readonly ComicVineService comic;
 
     public AggregatedMetadataService(AniListService ani, GoogleBooksService google, ComicVineService comic)
     {
-        _ani = ani; _google = google; _comic = comic;
+        this.ani = ani; this.google = google; this.comic = comic;
     }
 
     public async Task<Dictionary<string,string>> FetchMetadataAsync(string title, BookType type, CancellationToken ct = default)
     {
         var tasks = new[]
         {
-            _ani.TryFetchAsync(title, type, ct),
-            _google.TryFetchAsync(title, type, ct),
-            _comic.TryFetchAsync(title, type, ct)
+            ani.TryFetchAsync(title, type, ct),
+            google.TryFetchAsync(title, type, ct),
+            comic.TryFetchAsync(title, type, ct)
         };
         var results = await Task.WhenAll(tasks);
         // merge preferring first non-empty values

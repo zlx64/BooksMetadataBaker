@@ -6,11 +6,11 @@ namespace PrepKavitaPdf.Services;
 
 public class AniListService
 {
-    private readonly HttpClient _http;
+    private readonly HttpClient http;
 
     public AniListService(HttpClient http)
     {
-        _http = http;
+        this.http = http;
     }
 
     public async Task<Dictionary<string,string>> TryFetchAsync(string title, BookType type, CancellationToken ct)
@@ -29,7 +29,7 @@ public class AniListService
         };
         try
         {
-            using var resp = await _http.PostAsJsonAsync("", queryObj, ct);
+            using var resp = await http.PostAsJsonAsync("", queryObj, ct);
             resp.EnsureSuccessStatusCode();
             using var stream = await resp.Content.ReadAsStreamAsync(ct);
             using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);

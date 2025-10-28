@@ -22,7 +22,7 @@ builder.Services.AddHttpClient<ComicVineService>(c =>
 });
 
 builder.Services.AddScoped<IAggregatedMetadataService, AggregatedMetadataService>();
-builder.Services.AddSingleton<PdfMetadataUpdater>();
+builder.Services.AddSingleton<IPdfMetadataUpdater, PdfMetadataUpdater>();
 
 var app = builder.Build();
 
