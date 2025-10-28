@@ -1,22 +1,28 @@
 using System.Net.Http.Json;
 using System.Text.Json;
 using PrepKavitaPdf.Models;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace PrepKavitaPdf.Services;
 
 public class AniListService
 {
     private readonly HttpClient http;
+    private readonly IMemoryCache cache;
 
-    public AniListService(HttpClient http)
+    public AniListService(HttpClient http, IMemoryCache cache)
     {
         this.http = http;
+        this.cache = cache;
     }
 
     public async Task<Dictionary<string,string>> TryFetchAsync(string title, BookType type, CancellationToken ct)
     {
         // Only attempt for Manga or LightNovel
         if (type is not BookType.Manga && type is not BookType.LightNovel) return new();
+
+        var cacheKey = $"AniList:{type}:{title}";
+        if (cache.TryGetValue(cacheKey, out Dictionary<string,string>? cached)) return cached;
 
         // AniList only distinguishes ANIME and MANGA. Light novels are MANGA with format NOVEL.
         var mediaType = "MANGA"; // GraphQL enum MediaType
@@ -45,11 +51,16 @@ public class AniListService
             if (media.TryGetProperty("siteUrl", out var site)) dict["SourceUrl"] = site.GetString() ?? "";
             if (media.TryGetProperty("format", out var fmt)) dict["Format"] = fmt.GetString() ?? "";
             dict["Source"] = "AniList";
+
+            // Cache for 10 minutes (including empty result to avoid repeated calls)
+            cache.Set(cacheKey, dict, TimeSpan.FromMinutes(10));
             return dict;
         }
         catch
         {
-            return new();
+            var empty = new Dictionary<string,string>();
+            cache.Set(cacheKey, empty, TimeSpan.FromMinutes(10));
+            return empty;
         }
     }
 }

@@ -7,6 +7,9 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
+// Caching
+builder.Services.AddMemoryCache();
+
 // HttpClients
 builder.Services.AddHttpClient<AniListService>(c =>
 {
