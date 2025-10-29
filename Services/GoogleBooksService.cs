@@ -14,10 +14,10 @@ public class GoogleBooksService(
 
     public async Task<Dictionary<string,string>> TryFetchAsync(string title, BookType type, CancellationToken ct)
     {
-        if (type is not BookType.Book && type is not BookType.LightNovel) return new();
+        if (type is not BookType.Book && type is not BookType.LightNovel) return new Dictionary<string,string>();
 
         var cacheKey = $"GoogleBooks:{type}:{title}";
-        if (cache.TryGetValue(cacheKey, out Dictionary<string,string>? cached))
+        if (cache.TryGetValue(cacheKey, out Dictionary<string,string>? cached) && cached is not null)
         {
             logger.LogDebug("GoogleBooks cache hit for {Title} Type={Type}", title, type);
             return cached;
@@ -41,10 +41,10 @@ public class GoogleBooksService(
             }
             var volumeInfo = items[0].GetProperty("volumeInfo");
             var dict = new Dictionary<string,string>();
-            if (volumeInfo.TryGetProperty("title", out var ti)) dict["Title"] = ti.GetString() ?? "";
+            if (volumeInfo.TryGetProperty("title", out var ti)) dict["Title"] = ti.GetString() ?? string.Empty;
             if (volumeInfo.TryGetProperty("authors", out var authors) && authors.ValueKind==JsonValueKind.Array) dict["Authors"] = string.Join(", ", authors.EnumerateArray().Select(a=>a.GetString()));
-            if (volumeInfo.TryGetProperty("description", out var desc)) dict["Description"] = desc.GetString() ?? "";
-            if (volumeInfo.TryGetProperty("publishedDate", out var pub)) dict["PublishedDate"] = pub.GetString() ?? "";
+            if (volumeInfo.TryGetProperty("description", out var desc)) dict["Description"] = desc.GetString() ?? string.Empty;
+            if (volumeInfo.TryGetProperty("publishedDate", out var pub)) dict["PublishedDate"] = pub.GetString() ?? string.Empty;
             dict["Source"] = "GoogleBooks";
 
             cache.Set(cacheKey, dict, TimeSpan.FromMinutes(10));

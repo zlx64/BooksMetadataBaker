@@ -168,7 +168,7 @@ public class PdfMetadataUpdater : IPdfMetadataUpdater
             if (RunGhostscriptTransform(orig, stripped, out var gsErr))
             {
                 gsRan = true;
-                logger.LogInformation("ForceStripAttempt: Ghostscript transform succeeded for {File}");
+                logger.LogInformation("ForceStripAttempt: Ghostscript transform succeeded for {File}", filePath);
             }
             else
             {
@@ -179,14 +179,14 @@ public class PdfMetadataUpdater : IPdfMetadataUpdater
 
             if (ct.IsCancellationRequested)
             {
-                logger.LogWarning("ForceStripAttempt cancelled for {File}");
+                logger.LogWarning("ForceStripAttempt cancelled for {File}", filePath);
                 return Task.FromResult<(bool Success, string? Error, bool GhostscriptRan)>((false, "Cancelled", gsRan));
             }
 
             if (TryWriteMetadataInPlace(stripped, metadata, fallbackTitle, out var metaErr))
             {
                 if (stripped != orig && File.Exists(stripped)) File.Copy(stripped, orig, true);
-                logger.LogInformation("ForceStripAttempt: metadata applied successfully for {File}");
+                logger.LogInformation("ForceStripAttempt: metadata applied successfully for {File}", filePath);
                 return Task.FromResult<(bool Success, string? Error, bool GhostscriptRan)>((true, null, gsRan));
             }
             errors = Combine(errors, metaErr);

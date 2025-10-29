@@ -14,10 +14,10 @@ public class ComicVineService(
 
     public async Task<Dictionary<string,string>> TryFetchAsync(string title, BookType type, CancellationToken ct)
     {
-        if (type is not BookType.Comic) return new();
+        if (type is not BookType.Comic) return new Dictionary<string,string>();
 
         var cacheKey = $"ComicVine:{type}:{title}";
-        if (cache.TryGetValue(cacheKey, out Dictionary<string,string>? cached))
+        if (cache.TryGetValue(cacheKey, out Dictionary<string,string>? cached) && cached is not null)
         {
             logger.LogDebug("ComicVine cache hit for {Title} Type={Type}", title, type);
             return cached;
@@ -40,9 +40,9 @@ public class ComicVineService(
             }
             var first = results[0];
             var dict = new Dictionary<string,string>();
-            if (first.TryGetProperty("name", out var name)) dict["Title"] = name.GetString() ?? "";
-            if (first.TryGetProperty("description", out var desc)) dict["Description"] = desc.GetString() ?? "";
-            if (first.TryGetProperty("site_detail_url", out var site)) dict["SourceUrl"] = site.GetString() ?? "";
+            if (first.TryGetProperty("name", out var name)) dict["Title"] = name.GetString() ?? string.Empty;
+            if (first.TryGetProperty("description", out var desc)) dict["Description"] = desc.GetString() ?? string.Empty;
+            if (first.TryGetProperty("site_detail_url", out var site)) dict["SourceUrl"] = site.GetString() ?? string.Empty;
             dict["Source"] = "ComicVine";
 
             cache.Set(cacheKey, dict, TimeSpan.FromMinutes(10));

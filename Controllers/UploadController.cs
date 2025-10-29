@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.AspNetCore.Mvc;
 using PrepKavitaPdf.Models;
 using PrepKavitaPdf.Services;
@@ -27,7 +28,7 @@ public class UploadController(
 {
     [HttpPost]
     [RequestSizeLimit(524_288_000)] // 500MB
-    public async Task<IActionResult> Upload([FromForm] UploadRequest info, IFormFile file, CancellationToken ct)
+    public async Task<IActionResult> Upload([FromForm] UploadRequest info, IFormFile? file, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(info.Title)) return BadRequest("Title required");
         if (file is null) return BadRequest("PDF file required");
@@ -35,8 +36,20 @@ public class UploadController(
 
         var root = config["PdfLibrary:RootFolder"];
         if (string.IsNullOrWhiteSpace(root)) return StatusCode(500, "Root folder not configured");
-        Directory.CreateDirectory(root);
-        var titleFolder = Path.Combine(root, Sanitize(info.Title));
+
+        // Resolve type-specific folder from configuration (PdfLibrary:TypeFolders), with defaults.
+        var typeFolderSection = config.GetSection("PdfLibrary:TypeFolders");
+        var typeFolder = info.Type switch
+        {
+            BookType.Book => typeFolderSection["Book"] ?? "Novel",
+            BookType.LightNovel => typeFolderSection["LightNovel"] ?? "Ranobe",
+            BookType.Manga => typeFolderSection["Manga"] ?? "Manga",
+            BookType.Comic => typeFolderSection["Comic"] ?? "Comic",
+            _ => "Other"
+        };
+
+        // Final folder path: {root}/{folder_for_type}/{title}
+        var titleFolder = Path.Combine(root, Sanitize(typeFolder), Sanitize(info.Title));
         Directory.CreateDirectory(titleFolder);
 
         // Save single PDF
@@ -123,7 +136,7 @@ public class UploadController(
 
     private static string BuildVolumeName(string title, string numStr)
     {
-        if (numStr.Contains('.') && decimal.TryParse(numStr, out var dec)) numStr = dec.ToString();
+        if (numStr.Contains('.') && decimal.TryParse(numStr, out var dec)) numStr = dec.ToString(CultureInfo.InvariantCulture);
         else if (int.TryParse(numStr, out var num)) numStr = num.ToString();
         return $"{title} - Volume {numStr}";
     }
