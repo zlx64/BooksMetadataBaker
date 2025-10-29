@@ -1,6 +1,20 @@
 using PrepKavitaPdf.Services;
+using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Configure Serilog early so host logging uses it.
+// Reads configuration from appsettings (Logging and Serilog sections)
+Log.Logger = new LoggerConfiguration()
+    .ReadFrom.Configuration(builder.Configuration)
+    .Enrich.FromLogContext()
+    .Enrich.WithEnvironmentName()
+    .Enrich.WithProcessId()
+    .Enrich.WithThreadId()
+    .WriteTo.Console() // fallback if config missing
+    .CreateLogger();
+
+builder.Host.UseSerilog();
 
 // Services
 builder.Services.AddControllers();
@@ -46,4 +60,16 @@ app.MapControllers();
 // Redirect root to UI page
 app.MapGet("/", () => Results.Redirect("/index.html"));
 
-app.Run();
+try
+{
+    Log.Information("Starting PrepKavitaPdf web application");
+    app.Run();
+}
+catch (Exception ex)
+{
+    Log.Fatal(ex, "Application terminated unexpectedly");
+}
+finally
+{
+    Log.CloseAndFlush();
+}

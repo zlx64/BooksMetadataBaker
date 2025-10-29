@@ -2,6 +2,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using PrepKavitaPdf.Models;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Logging;
 
 namespace PrepKavitaPdf.Services;
 
@@ -9,11 +10,13 @@ public class AniListService
 {
     private readonly HttpClient http;
     private readonly IMemoryCache cache;
+    private readonly ILogger<AniListService> logger;
 
-    public AniListService(HttpClient http, IMemoryCache cache)
+    public AniListService(HttpClient http, IMemoryCache cache, ILogger<AniListService> logger)
     {
         this.http = http;
         this.cache = cache;
+        this.logger = logger;
     }
 
     public async Task<Dictionary<string,string>> TryFetchAsync(string title, BookType type, CancellationToken ct)
@@ -22,9 +25,12 @@ public class AniListService
         if (type is not BookType.Manga && type is not BookType.LightNovel) return new();
 
         var cacheKey = $"AniList:{type}:{title}";
-        if (cache.TryGetValue(cacheKey, out Dictionary<string,string>? cached)) return cached;
+        if (cache.TryGetValue(cacheKey, out Dictionary<string,string>? cached))
+        {
+            logger.LogDebug("AniList cache hit for {Title} Type={Type}", title, type);
+            return cached;
+        }
 
-        // AniList only distinguishes ANIME and MANGA. Light novels are MANGA with format NOVEL.
         var mediaType = "MANGA"; // GraphQL enum MediaType
         string? format = type == BookType.LightNovel ? "NOVEL" : null; // GraphQL enum MediaFormat
 
@@ -35,6 +41,7 @@ public class AniListService
         };
         try
         {
+            logger.LogInformation("AniList request for {Title} Type={Type} Format={Format}", title, type, format);
             using var resp = await http.PostAsJsonAsync("", queryObj, ct);
             resp.EnsureSuccessStatusCode();
             using var stream = await resp.Content.ReadAsStreamAsync(ct);
@@ -52,12 +59,13 @@ public class AniListService
             if (media.TryGetProperty("format", out var fmt)) dict["Format"] = fmt.GetString() ?? "";
             dict["Source"] = "AniList";
 
-            // Cache for 10 minutes (including empty result to avoid repeated calls)
             cache.Set(cacheKey, dict, TimeSpan.FromMinutes(10));
+            logger.LogInformation("AniList response mapped for {Title}. Keys={Keys}", title, string.Join(',', dict.Keys));
             return dict;
         }
-        catch
+        catch (Exception ex)
         {
+            logger.LogWarning(ex, "AniList fetch failed for {Title} Type={Type}", title, type);
             var empty = new Dictionary<string,string>();
             cache.Set(cacheKey, empty, TimeSpan.FromMinutes(10));
             return empty;

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using PrepKavitaPdf.Models;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Logging;
 
 namespace PrepKavitaPdf.Services;
 
@@ -9,12 +10,14 @@ public class ComicVineService
     private readonly HttpClient http;
     private readonly string apiKey;
     private readonly IMemoryCache cache;
+    private readonly ILogger<ComicVineService> logger;
 
-    public ComicVineService(HttpClient http, IConfiguration config, IMemoryCache cache)
+    public ComicVineService(HttpClient http, IConfiguration config, IMemoryCache cache, ILogger<ComicVineService> logger)
     {
         this.http = http;
         apiKey = config["PdfLibrary:ComicVine:ApiKey"] ?? string.Empty;
         this.cache = cache;
+        this.logger = logger;
     }
 
     public async Task<Dictionary<string,string>> TryFetchAsync(string title, BookType type, CancellationToken ct)
@@ -22,17 +25,23 @@ public class ComicVineService
         if (type is not BookType.Comic) return new();
 
         var cacheKey = $"ComicVine:{type}:{title}";
-        if (cache.TryGetValue(cacheKey, out Dictionary<string,string>? cached)) return cached;
+        if (cache.TryGetValue(cacheKey, out Dictionary<string,string>? cached))
+        {
+            logger.LogDebug("ComicVine cache hit for {Title} Type={Type}", title, type);
+            return cached;
+        }
 
         try
         {
             var url = $"search/?api_key={apiKey}&format=json&query={Uri.EscapeDataString(title)}&resources=volume";
+            logger.LogInformation("ComicVine request for {Title} Type={Type} Url={Url}", title, type, url);
             using var resp = await http.GetAsync(url, ct);
             resp.EnsureSuccessStatusCode();
             using var stream = await resp.Content.ReadAsStreamAsync(ct);
             using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
             if (!doc.RootElement.TryGetProperty("results", out var results) || results.GetArrayLength()==0)
             {
+                logger.LogInformation("ComicVine no results for {Title}", title);
                 var empty = new Dictionary<string,string>();
                 cache.Set(cacheKey, empty, TimeSpan.FromMinutes(10));
                 return empty;
@@ -45,10 +54,12 @@ public class ComicVineService
             dict["Source"] = "ComicVine";
 
             cache.Set(cacheKey, dict, TimeSpan.FromMinutes(10));
+            logger.LogInformation("ComicVine response mapped for {Title}. Keys={Keys}", title, string.Join(',', dict.Keys));
             return dict;
         }
-        catch
+        catch (Exception ex)
         {
+            logger.LogWarning(ex, "ComicVine fetch failed for {Title} Type={Type}", title, type);
             var empty = new Dictionary<string,string>();
             cache.Set(cacheKey, empty, TimeSpan.FromMinutes(10));
             return empty;
