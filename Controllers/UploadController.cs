@@ -18,25 +18,13 @@ public sealed record PdfUploadProcessResult(
 
 [ApiController]
 [Route("api/[controller]")]
-public class UploadController : ControllerBase
+public class UploadController(
+    IConfiguration config,
+    IAggregatedMetadataService metadataService,
+    IPdfMetadataUpdater metadataUpdater,
+    ILogger<UploadController> logger)
+    : ControllerBase
 {
-    private readonly IConfiguration config;
-    private readonly IAggregatedMetadataService metadataService;
-    private readonly IPdfMetadataUpdater metadataUpdater;
-    private readonly ILogger<UploadController> logger;
-
-    public UploadController(
-        IConfiguration config,
-        IAggregatedMetadataService metadataService,
-        IPdfMetadataUpdater metadataUpdater,
-        ILogger<UploadController> logger)
-    {
-        this.config = config;
-        this.metadataService = metadataService;
-        this.metadataUpdater = metadataUpdater;
-        this.logger = logger;
-    }
-
     [HttpPost]
     [RequestSizeLimit(524_288_000)] // 500MB
     public async Task<IActionResult> Upload([FromForm] UploadRequest info, IFormFile file, CancellationToken ct)
@@ -124,7 +112,7 @@ public class UploadController : ControllerBase
         var newBaseName = match.Success ? BuildVolumeName(title, match.Value) : title;
         var sanitized = Sanitize(newBaseName) + ".pdf";
         var path = Path.Combine(folder, sanitized);
-        int counter = 1;
+        var counter = 1;
         while (System.IO.File.Exists(path))
         {
             path = Path.Combine(folder, Sanitize(newBaseName) + $" ({counter}).pdf");

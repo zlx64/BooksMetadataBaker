@@ -2,7 +2,6 @@ using PdfSharpCore.Pdf;
 using PdfSharpCore.Pdf.IO;
 using System.Diagnostics;
 using System.Text.Json;
-using Microsoft.Extensions.Logging;
 
 namespace PrepKavitaPdf.Services;
 

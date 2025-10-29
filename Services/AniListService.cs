@@ -1,24 +1,11 @@
-using System.Net.Http.Json;
 using System.Text.Json;
 using PrepKavitaPdf.Models;
 using Microsoft.Extensions.Caching.Memory;
-using Microsoft.Extensions.Logging;
 
 namespace PrepKavitaPdf.Services;
 
-public class AniListService
+public class AniListService(HttpClient http, IMemoryCache cache, ILogger<AniListService> logger)
 {
-    private readonly HttpClient http;
-    private readonly IMemoryCache cache;
-    private readonly ILogger<AniListService> logger;
-
-    public AniListService(HttpClient http, IMemoryCache cache, ILogger<AniListService> logger)
-    {
-        this.http = http;
-        this.cache = cache;
-        this.logger = logger;
-    }
-
     public async Task<Dictionary<string,string>> TryFetchAsync(string title, BookType type, CancellationToken ct)
     {
         // Only attempt for Manga or LightNovel
@@ -32,7 +19,7 @@ public class AniListService
         }
 
         var mediaType = "MANGA"; // GraphQL enum MediaType
-        string? format = type == BookType.LightNovel ? "NOVEL" : null; // GraphQL enum MediaFormat
+        var format = type == BookType.LightNovel ? "NOVEL" : null; // GraphQL enum MediaFormat
 
         var queryObj = new
         {
@@ -44,7 +31,7 @@ public class AniListService
             logger.LogInformation("AniList request for {Title} Type={Type} Format={Format}", title, type, format);
             using var resp = await http.PostAsJsonAsync("", queryObj, ct);
             resp.EnsureSuccessStatusCode();
-            using var stream = await resp.Content.ReadAsStreamAsync(ct);
+            await using var stream = await resp.Content.ReadAsStreamAsync(ct);
             using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
             var media = doc.RootElement.GetProperty("data").GetProperty("Media");
             var dict = new Dictionary<string,string>();

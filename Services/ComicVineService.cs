@@ -1,24 +1,16 @@
 using System.Text.Json;
 using PrepKavitaPdf.Models;
 using Microsoft.Extensions.Caching.Memory;
-using Microsoft.Extensions.Logging;
 
 namespace PrepKavitaPdf.Services;
 
-public class ComicVineService
+public class ComicVineService(
+    HttpClient http,
+    IConfiguration config,
+    IMemoryCache cache,
+    ILogger<ComicVineService> logger)
 {
-    private readonly HttpClient http;
-    private readonly string apiKey;
-    private readonly IMemoryCache cache;
-    private readonly ILogger<ComicVineService> logger;
-
-    public ComicVineService(HttpClient http, IConfiguration config, IMemoryCache cache, ILogger<ComicVineService> logger)
-    {
-        this.http = http;
-        apiKey = config["PdfLibrary:ComicVine:ApiKey"] ?? string.Empty;
-        this.cache = cache;
-        this.logger = logger;
-    }
+    private readonly string apiKey = config["PdfLibrary:ComicVine:ApiKey"] ?? string.Empty;
 
     public async Task<Dictionary<string,string>> TryFetchAsync(string title, BookType type, CancellationToken ct)
     {
@@ -37,7 +29,7 @@ public class ComicVineService
             logger.LogInformation("ComicVine request for {Title} Type={Type} Url={Url}", title, type, url);
             using var resp = await http.GetAsync(url, ct);
             resp.EnsureSuccessStatusCode();
-            using var stream = await resp.Content.ReadAsStreamAsync(ct);
+            await using var stream = await resp.Content.ReadAsStreamAsync(ct);
             using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
             if (!doc.RootElement.TryGetProperty("results", out var results) || results.GetArrayLength()==0)
             {

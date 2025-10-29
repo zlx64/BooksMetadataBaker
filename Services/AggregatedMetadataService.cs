@@ -1,20 +1,14 @@
 using PrepKavitaPdf.Models;
-using Microsoft.Extensions.Logging;
 
 namespace PrepKavitaPdf.Services;
 
-public class AggregatedMetadataService : IAggregatedMetadataService
+public class AggregatedMetadataService(
+    AniListService ani,
+    GoogleBooksService google,
+    ComicVineService comic,
+    ILogger<AggregatedMetadataService> logger)
+    : IAggregatedMetadataService
 {
-    private readonly AniListService ani;
-    private readonly GoogleBooksService google;
-    private readonly ComicVineService comic;
-    private readonly ILogger<AggregatedMetadataService> logger;
-
-    public AggregatedMetadataService(AniListService ani, GoogleBooksService google, ComicVineService comic, ILogger<AggregatedMetadataService> logger)
-    {
-        this.ani = ani; this.google = google; this.comic = comic; this.logger = logger;
-    }
-
     public async Task<Dictionary<string,string>> FetchMetadataAsync(string title, BookType type, CancellationToken ct = default)
     {
         logger.LogInformation("Fetching aggregated metadata for Title={Title} Type={Type}", title, type);

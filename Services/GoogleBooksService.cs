@@ -1,25 +1,16 @@
-using System.Net.Http.Json;
 using System.Text.Json;
 using PrepKavitaPdf.Models;
 using Microsoft.Extensions.Caching.Memory;
-using Microsoft.Extensions.Logging;
 
 namespace PrepKavitaPdf.Services;
 
-public class GoogleBooksService
+public class GoogleBooksService(
+    HttpClient http,
+    IConfiguration config,
+    IMemoryCache cache,
+    ILogger<GoogleBooksService> logger)
 {
-    private readonly HttpClient http;
-    private readonly string apiKey;
-    private readonly IMemoryCache cache;
-    private readonly ILogger<GoogleBooksService> logger;
-
-    public GoogleBooksService(HttpClient http, IConfiguration config, IMemoryCache cache, ILogger<GoogleBooksService> logger)
-    {
-        this.http = http;
-        apiKey = config["PdfLibrary:GoogleBooks:ApiKey"] ?? string.Empty;
-        this.cache = cache;
-        this.logger = logger;
-    }
+    private readonly string apiKey = config["PdfLibrary:GoogleBooks:ApiKey"] ?? string.Empty;
 
     public async Task<Dictionary<string,string>> TryFetchAsync(string title, BookType type, CancellationToken ct)
     {
@@ -38,7 +29,7 @@ public class GoogleBooksService
             logger.LogInformation("GoogleBooks request for {Title} Type={Type} Url={Url}", title, type, url);
             using var resp = await http.GetAsync(url, ct);
             resp.EnsureSuccessStatusCode();
-            using var stream = await resp.Content.ReadAsStreamAsync(ct);
+            await using var stream = await resp.Content.ReadAsStreamAsync(ct);
             using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
             var items = doc.RootElement.TryGetProperty("items", out var itemsEl) ? itemsEl : default;
             if (items.ValueKind != JsonValueKind.Array || items.GetArrayLength() == 0)
