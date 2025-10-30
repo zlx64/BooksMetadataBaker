@@ -84,6 +84,10 @@ public class UploadProcessingService : IUploadProcessingService
             var forceOk = attempts.Any(a => a.Stage == PdfMetadataAttemptStage.ForceStrip && a.Success);
             var errorMessage = CombineErrors(attempts);
             metadataUpdater.WriteSidecarSummary(savePath, meta, info.Title, success, errorMessage, success, ghostscriptRan);
+            if (success)
+            {
+                metadataUpdater.WriteKavitaSeriesMetadata(savePath, meta, info.Title);
+            }
             result = new(
                 File: Path.GetFileName(savePath),
                 Success: success,

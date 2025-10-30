@@ -19,6 +19,7 @@ public interface IPdfMetadataUpdater
 {
     Task<IReadOnlyList<PdfMetadataAttemptResult>> RunPipelineAsync(string filePath, IDictionary<string, string> metadata, string fallbackTitle, CancellationToken ct);
     void WriteSidecarSummary(string filePath, IDictionary<string, string> metadata, string fallbackTitle, bool success, string? errors, bool metadataApplied, bool ghostscriptRan);
+    void WriteKavitaSeriesMetadata(string filePath, IDictionary<string,string> metadata, string fallbackTitle);
 }
 
 public class PdfMetadataUpdater : IPdfMetadataUpdater
@@ -427,28 +428,110 @@ public class PdfMetadataUpdater : IPdfMetadataUpdater
         }
     }
 
-    private string? ResolveGhostscript()
+    public void WriteKavitaSeriesMetadata(string filePath, IDictionary<string,string> metadata, string fallbackTitle)
     {
-        if (!string.IsNullOrWhiteSpace(gsPathCfg) && (gsPathCfg.Contains(Path.DirectorySeparatorChar) || gsPathCfg.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)))
-            return File.Exists(gsPathCfg) ? gsPathCfg : null;
-        var names = new[] { gsPathCfg, "gs", "gswin64c.exe", "gswin32c.exe" };
-        foreach (var n in names)
+        try
         {
-            var p = Which(n);
-            if (p != null) return p;
+            var dir = Path.GetDirectoryName(filePath);
+            if (dir is null) return;
+            var kavitaPath = Path.Combine(dir, "series.json");
+            // Overwrite each time to keep metadata in sync.
+            var title = GetFirst(metadata, fallbackTitle, "Title", "TitleEnglish", "TitleRomaji", "TitleNative");
+            var altTitles = new List<string>();
+            void AddAlt(string key)
+            {
+                if (metadata.TryGetValue(key, out var v) && !string.IsNullOrWhiteSpace(v) && !v.Equals(title, StringComparison.OrdinalIgnoreCase) && !altTitles.Contains(v)) altTitles.Add(v);
+            }
+            AddAlt("TitleEnglish");
+            AddAlt("TitleRomaji");
+            AddAlt("TitleNative");
+            var authors = metadata.TryGetValue("Authors", out var a) ? a.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList() : new List<string>();
+            var genres = new List<string>();
+            if (metadata.TryGetValue("Genres", out var g)) genres.AddRange(g.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+            if (metadata.TryGetValue("Categories", out var c)) genres.AddRange(c.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+            genres = genres.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            var tags = new List<string>();
+            void AddTag(string key)
+            {
+                if (metadata.TryGetValue(key, out var v) && !string.IsNullOrWhiteSpace(v)) tags.Add(v);
+            }
+            AddTag("Format");
+            AddTag("Status");
+            AddTag("Source");
+            AddTag("Language");
+            var year = ExtractYear(metadata);
+            var ageRating = InferAgeRating(metadata, genres, tags);
+            var format = metadata.TryGetValue("Format", out var fmt) ? fmt : string.Empty;
+            var obj = new Dictionary<string, object?>
+            {
+                ["Title"] = title,
+                ["LocalizedTitles"] = new List<string>(),
+                ["AlternativeTitles"] = altTitles,
+                ["Summary"] = metadata.TryGetValue("Description", out var desc) ? desc : string.Empty,
+                ["Publisher"] = metadata.TryGetValue("Publisher", out var pub) ? pub : string.Empty,
+                ["ReleaseYear"] = year,
+                ["Format"] = format,
+                ["Genres"] = genres,
+                ["Tags"] = tags.Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
+                ["Language"] = metadata.TryGetValue("Language", out var lang) ? lang : string.Empty,
+                ["AgeRating"] = ageRating,
+                ["Authors"] = authors,
+                ["Artists"] = new List<string>(),
+                ["Translators"] = new List<string>(),
+                ["Editors"] = new List<string>(),
+                ["Characters"] = new List<string>(),
+                ["Imprint"] = string.Empty,
+                ["Source"] = metadata.TryGetValue("Source", out var src) ? src : string.Empty,
+                ["SourceUrl"] = metadata.TryGetValue("SourceUrl", out var su) ? su : null
+            };
+            var json = JsonSerializer.Serialize(obj, new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(kavitaPath, json);
+            logger.LogInformation("Wrote Kavita series metadata file {File}", kavitaPath);
         }
-        return null;
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed writing Kavita series metadata for {File}", filePath);
+        }
     }
 
-    private string? Which(string cmd)
+    private static int InferAgeRating(IDictionary<string,string> meta, IEnumerable<string> genres, IEnumerable<string> tags)
     {
-        var pathEnv = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
-        foreach (var dir in pathEnv.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+        var tokens = new List<string>();
+        void Collect(string? v)
         {
-            var full = Path.Combine(dir, cmd);
-            if (File.Exists(full)) return full;
+            if (!string.IsNullOrWhiteSpace(v))
+            {
+                tokens.AddRange(v.Split(new[] {' ', ',', ';', '.', '/', '\\', '|' }, StringSplitOptions.RemoveEmptyEntries));
+            }
         }
-        return null;
+        foreach (var g in genres) Collect(g);
+        foreach (var t in tags) Collect(t);
+        if (meta.TryGetValue("Description", out var desc)) Collect(desc);
+        var lowered = tokens.Select(x => x.ToLowerInvariant()).ToList();
+        string[] adult = { "adult","hentai","mature","18","erotic","nsfw","porn","smut" };
+        if (lowered.Any(l => adult.Contains(l))) return 18;
+        string[] teenPlus = { "seinen","violence","gore","horror","dark" };
+        if (lowered.Any(l => teenPlus.Contains(l))) return 16;
+        string[] teen = { "shounen","romance","ya","teen" };
+        if (lowered.Any(l => teen.Contains(l))) return 13;
+        return 0;
+    }
+
+    private static int ExtractYear(IDictionary<string,string> meta)
+    {
+        string? pick = null;
+        foreach (var key in new[]{"PublishedDate","StartDate","StartYear","EndDate"})
+        {
+            if (meta.TryGetValue(key, out var v) && !string.IsNullOrWhiteSpace(v)) { pick = v; break; }
+        }
+        if (pick == null) return 0;
+        foreach (var part in pick.Split('-', ' ', '/', '.'))
+        {
+            if (part.Length == 4 && int.TryParse(part, out var yr) && yr > 0) return yr;
+        }
+        var digits = new string(pick.Where(char.IsDigit).ToArray());
+        if (digits.Length >= 4 && int.TryParse(digits.Substring(0,4), out var y2)) return y2;
+        return 0;
     }
 
     private static string GetFirst(IDictionary<string, string> dict, string fallback, params string[] keys)
@@ -466,5 +549,29 @@ public class PdfMetadataUpdater : IPdfMetadataUpdater
         if (string.IsNullOrWhiteSpace(a)) return b ?? string.Empty;
         if (string.IsNullOrWhiteSpace(b)) return a;
         return a + "; " + b;
+    }
+
+    private string? ResolveGhostscript()
+    {
+        if (!string.IsNullOrWhiteSpace(gsPathCfg) && (gsPathCfg.Contains(Path.DirectorySeparatorChar) || gsPathCfg.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)))
+            return File.Exists(gsPathCfg) ? gsPathCfg : null;
+        var names = new[] { gsPathCfg, "gs", "gswin64c.exe", "gswin32c.exe" };
+        foreach (var n in names)
+        {
+            var p = Which(n);
+            if (p != null) return p;
+        }
+        return null;
+    }
+
+    private static string? Which(string cmd)
+    {
+        var pathEnv = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
+        foreach (var dir in pathEnv.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var full = Path.Combine(dir, cmd);
+            if (File.Exists(full)) return full;
+        }
+        return null;
     }
 }
