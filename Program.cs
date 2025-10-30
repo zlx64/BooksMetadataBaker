@@ -40,6 +40,8 @@ builder.Services.AddHttpClient<ComicVineService>(c =>
 
 builder.Services.AddScoped<IAggregatedMetadataService, AggregatedMetadataService>();
 builder.Services.AddSingleton<IPdfMetadataUpdater, PdfMetadataUpdater>();
+// Upload processing service
+builder.Services.AddScoped<IUploadProcessingService, UploadProcessingService>();
 
 var app = builder.Build();
 
