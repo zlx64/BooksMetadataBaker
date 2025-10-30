@@ -321,18 +321,77 @@ public class PdfMetadataUpdater : IPdfMetadataUpdater
         IDictionary<string, string> metadata,
         string fallbackTitle)
     {
-        doc.Info.Title = GetFirst(metadata, fallbackTitle, "Title", "TitleEnglish", "TitleRomaji", "TitleNative");
-        doc.Info.Author = metadata.TryGetValue("Authors", out var a) ? a : string.Empty;
-        doc.Info.Subject = metadata.TryGetValue("Description", out var d) ? Truncate(d, 200) : string.Empty;
+        // Title (include subtitle if present and not already contained)
+        var title = GetFirst(metadata, fallbackTitle, "Title", "TitleEnglish", "TitleRomaji", "TitleNative");
+        if (metadata.TryGetValue("Subtitle", out var subtitle) && !string.IsNullOrWhiteSpace(subtitle) && !title.Contains(subtitle, StringComparison.OrdinalIgnoreCase))
+        {
+            title = $"{title}: {subtitle}";
+        }
+        doc.Info.Title = title;
 
-        var kws = new List<string>();
-        if (metadata.TryGetValue("Source", out var s) && !string.IsNullOrWhiteSpace(s)) kws.Add(s);
-        if (metadata.TryGetValue("Format", out var f) && !string.IsNullOrWhiteSpace(f)) kws.Add(f);
-        if (metadata.TryGetValue("PublishedDate", out var pd) && !string.IsNullOrWhiteSpace(pd)) kws.Add(pd);
-        if (metadata.TryGetValue("SourceUrl", out var url) && !string.IsNullOrWhiteSpace(url)) kws.Add(url);
+        // Author fallbacks (Authors -> Publisher)
+        if (metadata.TryGetValue("Authors", out var authors) && !string.IsNullOrWhiteSpace(authors))
+            doc.Info.Author = authors;
+        else if (metadata.TryGetValue("Publisher", out var publisher) && !string.IsNullOrWhiteSpace(publisher))
+            doc.Info.Author = publisher;
+        else
+            doc.Info.Author = string.Empty;
 
-        doc.Info.Keywords = kws.Count > 0 ? string.Join(", ", kws) : string.Empty;
+        // Subject: prefer Description then Snippet
+        if (metadata.TryGetValue("Description", out var desc) && !string.IsNullOrWhiteSpace(desc))
+            doc.Info.Subject = Truncate(desc, 400);
+        else if (metadata.TryGetValue("Snippet", out var snippet) && !string.IsNullOrWhiteSpace(snippet))
+            doc.Info.Subject = Truncate(snippet, 400);
+        else
+            doc.Info.Subject = string.Empty;
+
+        // Keywords compilation from expanded metadata
+        doc.Info.Keywords = BuildKeywords(metadata);
+
+        // Creator & Producer
         doc.Info.Creator = "PrepKavitaPdf";
+        doc.Info.Elements.SetString("/Producer", "PrepKavitaPdf");
+    }
+
+    private static string BuildKeywords(IDictionary<string,string> meta)
+    {
+        var list = new List<string>();
+        void Add(string? v) { if (!string.IsNullOrWhiteSpace(v)) list.Add(v.Trim()); }
+        void AddKV(string key)
+        {
+            if (meta.TryGetValue(key, out var v) && !string.IsNullOrWhiteSpace(v)) Add($"{key}:{v}");
+        }
+
+        // Core classification
+        AddKV("Source");
+        AddKV("Format");
+        AddKV("Status");
+        AddKV("Publisher");
+        AddKV("Language");
+        AddKV("AverageScore");
+        AddKV("Volumes");
+        AddKV("Chapters");
+        AddKV("PageCount");
+        AddKV("IssueCount");
+        AddKV("ISBN13");
+        AddKV("ISBN10");
+        AddKV("StartDate");
+        AddKV("EndDate");
+        AddKV("PublishedDate");
+        AddKV("StartYear");
+
+        // Genre/category arrays
+        if (meta.TryGetValue("Genres", out var genres)) foreach (var g in genres.Split(',', StringSplitOptions.RemoveEmptyEntries)) Add(g);
+        if (meta.TryGetValue("Categories", out var cats)) foreach (var c in cats.Split(',', StringSplitOptions.RemoveEmptyEntries)) Add(c);
+
+        // Source URL last (raw)
+        AddKV("SourceUrl");
+        AddKV("ApiDetailUrl");
+
+        // De-duplicate & limit size
+        var distinct = list.Select(s => s.Length > 120 ? s.Substring(0,120) : s).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var joined = string.Join(", ", distinct);
+        return joined.Length <= 512 ? joined : joined.Substring(0, 512);
     }
 
     private void WriteSidecar(
