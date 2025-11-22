@@ -82,7 +82,7 @@ public class UploadProcessingService : IUploadProcessingService
             var numMatch = Regex.Match(baseName, @"\b(\d{1,3}(?:\.\d+)?)\b");
             volMatch = numMatch;
         }
-        string? volumeToken = volMatch.Success ? volMatch.Groups[2].Value : null;
+        var volumeToken = volMatch.Success ? volMatch.Groups[2].Value : null;
         var meta = await metadataService.FetchMetadataAsync(info.Title, info.Type, volumeToken, ct);
         if (ct.IsCancellationRequested)
             return (new PdfUploadProcessResult(Path.GetFileName(savePath), false, "Cancelled", 0, meta, false, false, false, false), meta, true, null);

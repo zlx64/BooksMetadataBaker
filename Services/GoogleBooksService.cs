@@ -35,7 +35,7 @@ public class GoogleBooksService(
             if (items.ValueKind != JsonValueKind.Array || items.GetArrayLength() == 0) return new Dictionary<string,string>();
 
             // Pick first item having description
-            JsonElement chosen = items[0];
+            var chosen = items[0];
             foreach (var it in items.EnumerateArray())
             {
                 if (it.TryGetProperty("volumeInfo", out var vi) && vi.TryGetProperty("description", out var d) && !string.IsNullOrWhiteSpace(d.GetString()))

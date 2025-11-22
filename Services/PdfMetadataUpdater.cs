@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 
 namespace PrepKavitaPdf.Services;
 
@@ -74,13 +73,23 @@ public class PdfMetadataUpdater : IPdfMetadataUpdater
         if (ct.IsCancellationRequested)
             return Task.FromResult(new DirectAttemptResult(false, "Cancelled"));
 
+        // Step 1: Attempt metadata cleanup prior to applying new metadata.
+        var cleanedOk = TryCleanPdfMetadata(request.FilePath, out var cleanErr);
+        if (!cleanedOk)
+        {
+            logger.LogWarning("Initial metadata cleanup failed for {File}: {Error}", request.FilePath, cleanErr);
+            return Task.FromResult(new DirectAttemptResult(false, cleanErr ?? "Cleanup failed"));
+        }
+
+        // Step 2: Apply fresh metadata.
         var ok = TryWriteMetadataWithCalibre(
             request.FilePath,
             request.Metadata,
             request.FallbackTitle,
             out var err);
 
-        return Task.FromResult(new DirectAttemptResult(ok, ok ? string.Empty : err ?? string.Empty));
+        var msg = ok ? string.Empty : err ?? string.Empty;
+        return Task.FromResult(new DirectAttemptResult(ok, msg));
     }
 
     public Task<RepairAttemptResult> RepairAttemptAsync(
@@ -109,12 +118,19 @@ public class PdfMetadataUpdater : IPdfMetadataUpdater
             if (ct.IsCancellationRequested)
                 return Task.FromResult(new RepairAttemptResult(false, "Cancelled", gsRan));
 
+            // Attempt cleanup again (on transformed file if available) before applying metadata.
+            if (!TryCleanPdfMetadata(outputPath, out var cleanErr))
+            {
+                errors = Combine(errors, cleanErr);
+                logger.LogWarning("Repair path cleanup failed for {File}: {Error}", request.FilePath, cleanErr);
+            }
+
             if (TryWriteMetadataWithCalibre(outputPath, request.Metadata, request.FallbackTitle, out var metaErr))
             {
                 if (outputPath != request.FilePath && File.Exists(outputPath))
                     File.Copy(outputPath, request.FilePath, overwrite: true);
 
-                return Task.FromResult(new RepairAttemptResult(true, null, gsRan));
+                return Task.FromResult(new RepairAttemptResult(true, errors, gsRan));
             }
 
             errors = Combine(errors, metaErr);
@@ -160,7 +176,7 @@ public class PdfMetadataUpdater : IPdfMetadataUpdater
                 return;
 
             var kavitaPath = Path.Combine(dir, "series.json");
-            var title = GetFirst(metadata, fallbackTitle, "Title", "TitleEnglish", "TitleRomaji", "TitleNative");
+            var title = GetFirst(metadata, fallbackTitle, "Title", "TitleRomaji", "TitleEnglish", "TitleNative");
 
             var altTitles = CollectAlternateTitles(metadata, title);
             var authors = SplitAuthors(metadata, "Authors");
@@ -173,7 +189,10 @@ public class PdfMetadataUpdater : IPdfMetadataUpdater
             var obj = new Dictionary<string, object?>
             {
                 ["Title"] = title,
-                ["LocalizedTitles"] = new List<string>(),
+                ["LocalizedTitles"] = metadata.Where(d =>
+                    new[] { "Title", "TitleRomaji", "TitleEnglish", "TitleNative" }
+                        .Contains(d.Key)
+                ),
                 ["AlternativeTitles"] = altTitles,
                 ["Summary"] = metadata.TryGetValue("Description", out var desc) ? desc : string.Empty,
                 ["Publisher"] = metadata.TryGetValue("Publisher", out var pub) ? pub : string.Empty,
@@ -200,6 +219,57 @@ public class PdfMetadataUpdater : IPdfMetadataUpdater
         {
             logger.LogWarning(ex, "Failed writing Kavita series metadata for {File}", filePath);
         }
+    }
+
+    private bool TryCleanPdfMetadata(string path, out string? error)
+    {
+        error = null;
+        try
+        {
+            var args = BuildEbookMetaCleanArgs(path);
+            var psi = new ProcessStartInfo("ebook-meta", args)
+            {
+                RedirectStandardError = true,
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            using var proc = Process.Start(psi);
+            if (proc == null)
+            {
+                error = "failed to start ebook-meta (cleanup)";
+                return false;
+            }
+            proc.WaitForExit();
+            var stderr = proc.StandardError.ReadToEnd();
+            var stdout = proc.StandardOutput.ReadToEnd();
+            if (proc.ExitCode != 0)
+            {
+                error = string.IsNullOrWhiteSpace(stderr + stdout) ? $"ebook-meta cleanup exit {proc.ExitCode}" : stderr + stdout;
+                return false;
+            }
+            return true;
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+            logger.LogWarning(ex, "Cleanup exception for {File}", path);
+            return false;
+        }
+    }
+
+    private string BuildEbookMetaCleanArgs(string filePath)
+    {
+        // Provide blank values for common metadata fields to strip existing info.
+        string Q(string v) => '"' + v.Replace("\"", "\\\"") + '"';
+        var fields = new[]
+        {
+            "--title", "--authors", "--comments", "--tags", "--series", "--publisher", "--isbn", "--language"
+        };
+        var parts = new List<string>();
+        foreach (var f in fields) parts.Add(f + " " + Q(string.Empty));
+        parts.Add(Q(filePath));
+        return string.Join(' ', parts);
     }
 
     private bool TryWriteMetadataWithCalibre(
@@ -357,18 +427,11 @@ public class PdfMetadataUpdater : IPdfMetadataUpdater
         string Q(string v) => '"' + v.Replace("\"", "\\\"") + '"';
         var parts = new List<string>();
 
-        var baseTitle = Regex.Replace(fallbackTitle, @"(?i)\bvol(?:ume)?\s*\d+(?:\.\d+)?", string.Empty).Trim();
-        baseTitle = Regex.Replace(baseTitle, @"\s+", " ").Trim();
+        var title = GetFirst(meta, fallbackTitle, "TitleEnglish", "TitleRomaji", "Title", "TitleNative");
 
-        var title = baseTitle;
-        if (meta.TryGetValue("Subtitle", out var subtitle) &&
-            !string.IsNullOrWhiteSpace(subtitle) &&
-            !title.Contains(subtitle, StringComparison.OrdinalIgnoreCase))
-        {
-            title += ": " + subtitle.Trim();
-        }
+        var newTitle = Path.GetFileNameWithoutExtension(filePath);
 
-        parts.Add("--title " + Q(title));
+        parts.Add("--title " + Q(newTitle ?? title));
         parts.Add("--series " + Q(fallbackTitle));
 
         var idx = SeriesIndex(meta);
