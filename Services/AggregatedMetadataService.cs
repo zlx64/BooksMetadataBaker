@@ -37,7 +37,6 @@ public class AggregatedMetadataService(
         var baseMeta = enriched ?? await TryAllSourcesAsync(title, type, ct);
 
         NormalizeTitles(baseMeta, title);
-        if (!string.IsNullOrWhiteSpace(volumeToken)) ApplyVolumeCorrections(baseMeta, volumeToken!.Trim());
         EnsureSummary(baseMeta, volumeToken);
 
         return baseMeta;
@@ -105,24 +104,6 @@ public class AggregatedMetadataService(
         return false;
     }
 
-    private static void ApplyVolumeCorrections(Dictionary<string,string> meta, string volumeToken)
-    {
-        var targetVol = ParseVolumeNumber(volumeToken);
-        if (targetVol == null) return;
-        var canonicalBase = meta["Title"];
-        var existingExtract = ExtractVolumeNumber(canonicalBase);
-        if (existingExtract != targetVol)
-        {
-            var rebuilt = BuildVolumeTitle(RemoveVolumeMarkers(canonicalBase), targetVol.Value);
-            meta["Title"] = rebuilt;
-            meta["TitleEnglish"] = rebuilt;
-            meta["TitleRomaji"] = rebuilt;
-            meta["TitleNative"] = rebuilt;
-        }
-        meta["SeriesIndex"] = targetVol.Value.ToString();
-        meta["VolumeNumber"] = targetVol.Value.ToString();
-    }
-
     private static void EnsureSummary(Dictionary<string,string> meta, string? volumeToken)
     {
         bool hasDesc = meta.TryGetValue("Description", out var descVal) && !string.IsNullOrWhiteSpace(descVal);
@@ -145,14 +126,6 @@ public class AggregatedMetadataService(
         if (!string.IsNullOrWhiteSpace(synthetic)) meta["Description"] = synthetic;
     }
 
-    private static string RemoveVolumeMarkers(string title)
-    {
-        var cleaned = Regex.Replace(title, @"(?i)\bvol(?:ume)?\s*\d+(?:\.\d+)?", "").Trim();
-        cleaned = Regex.Replace(cleaned, @"\s+", " ").Trim();
-        return cleaned;
-    }
-
-    private static string BuildVolumeTitle(string baseTitle, double vol) => $"{baseTitle} Vol {vol:g}";
     private static double? ParseVolumeNumber(string token) => double.TryParse(token, out var d) ? d : null;
 
     private static double? ExtractVolumeNumber(string text)

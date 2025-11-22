@@ -14,23 +14,34 @@ public class GoogleBooksService(
     public async Task<Dictionary<string,string>> TryFetchAsync(string title, BookType type, CancellationToken ct)
     {
         if (type is not BookType.Book && type is not BookType.LightNovel) return new Dictionary<string,string>();
-        
+
+        // Clean title (remove volume markers) and build enriched query with OR terms to improve relevance.
+        var cleaned = Regex.Replace(title, @"(?i)\bvol(?:ume)?\s*\d+(?:\.\d+)?", "").Trim();
+        cleaned = Regex.Replace(cleaned, @"\s+", " ").Trim();
+        var terms = new[] { title, cleaned }.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        var queryExpression = string.Join(" OR ", terms.Select(t => '"' + t + '"'));
+        // Restrict language if provided in config (optional)
+        var langRestrict = config["PdfLibrary:GoogleBooks:Lang"];
+
         try
         {
-            var url = $"?q={Uri.EscapeDataString(title)}&maxResults=1&printType=books&projection=full&key={apiKey}";
+            var url = $"?q={Uri.EscapeDataString(queryExpression)}&maxResults=3&printType=books&projection=full" + (string.IsNullOrWhiteSpace(langRestrict)?"":$"&langRestrict={langRestrict}") + (string.IsNullOrWhiteSpace(apiKey)?"":$"&key={apiKey}");
             logger.LogInformation("GoogleBooks request for {Title} Type={Type} Url={Url}", title, type, url);
             using var resp = await http.GetAsync(url, ct);
             resp.EnsureSuccessStatusCode();
             await using var stream = await resp.Content.ReadAsStreamAsync(ct);
             using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
             var items = doc.RootElement.TryGetProperty("items", out var itemsEl) ? itemsEl : default;
-            if (items.ValueKind != JsonValueKind.Array || items.GetArrayLength() == 0)
+            if (items.ValueKind != JsonValueKind.Array || items.GetArrayLength() == 0) return new Dictionary<string,string>();
+
+            // Pick first item having description
+            JsonElement chosen = items[0];
+            foreach (var it in items.EnumerateArray())
             {
-                logger.LogInformation("GoogleBooks no results for {Title}", title);
-                var empty = new Dictionary<string,string>();
-                return empty;
+                if (it.TryGetProperty("volumeInfo", out var vi) && vi.TryGetProperty("description", out var d) && !string.IsNullOrWhiteSpace(d.GetString()))
+                { chosen = it; break; }
             }
-            var volumeInfo = items[0].GetProperty("volumeInfo");
+            var volumeInfo = chosen.GetProperty("volumeInfo");
             var dict = new Dictionary<string,string>();
             if (volumeInfo.TryGetProperty("title", out var ti)) dict["Title"] = ti.GetString() ?? string.Empty;
             if (volumeInfo.TryGetProperty("subtitle", out var sub) && !string.IsNullOrWhiteSpace(sub.GetString())) dict["Subtitle"] = sub.GetString() ?? string.Empty;
@@ -56,18 +67,15 @@ public class GoogleBooksService(
                     }
                 }
             }
-            if (items[0].TryGetProperty("searchInfo", out var searchInfo) && searchInfo.TryGetProperty("textSnippet", out var snippet)) dict["Snippet"] = Clean(snippet.GetString());
+            if (chosen.TryGetProperty("searchInfo", out var searchInfo) && searchInfo.TryGetProperty("textSnippet", out var snippet)) dict["Snippet"] = Clean(snippet.GetString());
             if (volumeInfo.TryGetProperty("infoLink", out var link)) dict["SourceUrl"] = link.GetString() ?? string.Empty;
             dict["Source"] = "GoogleBooks";
-
-            logger.LogInformation("GoogleBooks response mapped for {Title}. Keys={Keys}", title, string.Join(',', dict.Keys));
             return dict;
         }
         catch (Exception ex)
         {
             logger.LogWarning(ex, "GoogleBooks fetch failed for {Title} Type={Type}", title, type);
-            var empty = new Dictionary<string,string>();
-            return empty;
+            return new Dictionary<string,string>();
         }
     }
 
@@ -75,7 +83,7 @@ public class GoogleBooksService(
     {
         if (string.IsNullOrWhiteSpace(v)) return v;
         v = Regex.Replace(v, @"<br\s*/?>", "\n", RegexOptions.IgnoreCase);
-        v = Regex.Replace(v, @"<[^>]+>", string.Empty); // strip tags
+        v = Regex.Replace(v, @"<[^>]+>", string.Empty);
         return System.Net.WebUtility.HtmlDecode(v).Trim();
     }
 }

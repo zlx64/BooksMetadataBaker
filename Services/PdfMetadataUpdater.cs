@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace PrepKavitaPdf.Services;
 
@@ -86,7 +87,7 @@ public class PdfMetadataUpdater : IPdfMetadataUpdater
         return attempts;
     }
 
-    public Task<(bool ok, string? error)> DirectAttemptAsync(
+    public Task<(bool ok, string)> DirectAttemptAsync(
         string filePath,
         IDictionary<string, string> metadata,
         string fallbackTitle,
@@ -94,7 +95,7 @@ public class PdfMetadataUpdater : IPdfMetadataUpdater
     {
         if (ct.IsCancellationRequested) return Task.FromResult((false, "Cancelled"));
         var ok = TryWriteMetadataWithCalibre(filePath, metadata, fallbackTitle, out var err);
-        return Task.FromResult((ok, ok ? null : err));
+        return Task.FromResult((ok, ok ? "" : err ?? ""));
     }
 
     public Task<(bool Success, string? Error, bool GhostscriptRan)> RepairAttemptAsync(
@@ -192,7 +193,15 @@ public class PdfMetadataUpdater : IPdfMetadataUpdater
 
     private static void CleanupTemp(string dir)
     {
-        try { if (Directory.Exists(dir)) Directory.Delete(dir, true); } catch { }
+        try
+        {
+            if (Directory.Exists(dir)) 
+                Directory.Delete(dir, true);
+        }
+        catch
+        {
+            // ignored
+        }
     }
 
     private bool RunGhostscriptTransform(string input, string output, out string? err)
@@ -243,9 +252,16 @@ public class PdfMetadataUpdater : IPdfMetadataUpdater
         return true;
     }
 
-    private static void TryKill(Process p)
+    private void TryKill(Process p)
     {
-        try { p.Kill(); } catch { }
+        try
+        {
+            p.Kill();
+        }
+        catch
+        {
+            logger.LogWarning("Failed to kill process");
+        }
     }
 
     private static string Escape(string p) => p.Contains(' ') ? '"' + p + '"' : p;
@@ -261,19 +277,14 @@ public class PdfMetadataUpdater : IPdfMetadataUpdater
         // Title: now always use original request (fallbackTitle) without any volume markers from data sources.
         var baseTitle = fallbackTitle;
         // Strip accidental volume markers if user passed them.
-        baseTitle = System.Text.RegularExpressions.Regex.Replace(baseTitle, @"(?i)\bvol(?:ume)?\s*\d+(?:\.\d+)?", "").Trim();
-        baseTitle = System.Text.RegularExpressions.Regex.Replace(baseTitle, @"\s+", " ").Trim();
+        baseTitle = Regex.Replace(baseTitle, @"(?i)\bvol(?:ume)?\s*\d+(?:\.\d+)?", "").Trim();
+        baseTitle = Regex.Replace(baseTitle, @"\s+", " ").Trim();
         var title = baseTitle;
         if (meta.TryGetValue("Subtitle", out var subtitle) && !string.IsNullOrWhiteSpace(subtitle) && !title.Contains(subtitle, StringComparison.OrdinalIgnoreCase))
             title = title + ": " + subtitle.Trim();
         parts.Add("--title " + Q(title));
+        parts.Add("--series " + Q(fallbackTitle));
 
-        // Series (keep if present; calibre:series will override dc:title for series context but we still keep pure chapter title above)
-        var series = GetFirst(meta, string.Empty, "Series", "SeriesName", "calibre:series");
-        if (!string.IsNullOrWhiteSpace(series)) parts.Add("--series " + Q(series));
-
-        var idx = SeriesIndex(meta);
-        if (idx != null) parts.Add("--index " + Q(idx.Value.ToString("0.##", CultureInfo.InvariantCulture)));
         var rating = GetFirst(meta, string.Empty, "AverageScore", "Rating", "UserRating");
         if (!string.IsNullOrWhiteSpace(rating)) parts.Add("--rating " + Q(rating));
         var desc = GetFirst(meta, string.Empty, "Description", "Snippet");
@@ -321,20 +332,6 @@ public class PdfMetadataUpdater : IPdfMetadataUpdater
         string? errors,
         bool metadataApplied,
         bool ghostscriptRan) => WriteSidecar(filePath, metadata, fallbackTitle, success, errors, metadataApplied, ghostscriptRan);
-
-    private static double? SeriesIndex(IDictionary<string, string> m)
-    {
-        foreach (var key in new[] { "Volume", "VolumeNumber", "SeriesIndex", "Issue", "IssueNumber", "Chapter", "calibreSI:series_index" })
-        {
-            if (m.TryGetValue(key, out var v) && !string.IsNullOrWhiteSpace(v))
-            {
-                if (double.TryParse(v.Replace('#', ' ').Trim(), NumberStyles.Any, CultureInfo.InvariantCulture, out var d)) return d;
-                var num = new string(v.Where(c => char.IsDigit(c) || c == '.').ToArray());
-                if (double.TryParse(num, NumberStyles.Any, CultureInfo.InvariantCulture, out d)) return d;
-            }
-        }
-        return null;
-    }
 
     private static string NormDate(string raw)
     {
