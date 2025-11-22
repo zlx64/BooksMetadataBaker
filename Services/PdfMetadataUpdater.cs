@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace PrepKavitaPdf.Services;
 
@@ -434,8 +435,9 @@ public class PdfMetadataUpdater : IPdfMetadataUpdater
         parts.Add("--title " + Q(newTitle ?? title));
         parts.Add("--series " + Q(fallbackTitle));
 
-        var idx = SeriesIndex(meta);
-        if (idx != null) parts.Add("--index " + Q(idx.Value.ToString("0.##", CultureInfo.InvariantCulture)));
+        var idx = ParseVolumeNumber(newTitle);
+        if (idx != null)
+            parts.Add("--index " + Q(idx.Value.ToString(CultureInfo.InvariantCulture)));
 
         var rating = GetFirst(meta, string.Empty, "AverageScore", "Rating", "UserRating");
         if (!string.IsNullOrWhiteSpace(rating))
@@ -491,6 +493,21 @@ public class PdfMetadataUpdater : IPdfMetadataUpdater
         if (digits.Length >= 4)
             return digits[..4];
         return raw;
+    }
+    private static double? ParseVolumeNumber(string? title)
+    {
+        if (string.IsNullOrWhiteSpace(title))
+            return null;
+
+        var m = Regex.Match(title, @"(?:^|[\s._-])(?:vol(?:ume)?|v|issue|ch(?:apter)?|part)\s*(\d+(?:\.\d+)?)", RegexOptions.IgnoreCase);
+        if (m.Success && double.TryParse(m.Groups[1].Value, NumberStyles.Any, CultureInfo.InvariantCulture, out var d))
+            return d;
+
+        var trailing = Regex.Match(title, @"(\d+(?:\.\d+)?)\s*$");
+        if (trailing.Success && double.TryParse(trailing.Groups[1].Value, NumberStyles.Any, CultureInfo.InvariantCulture, out d))
+            return d;
+
+        return null;
     }
 
     private static double? SeriesIndex(IDictionary<string, string> m)
