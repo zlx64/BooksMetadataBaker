@@ -36,11 +36,9 @@ public class AggregatedMetadataService(
 
         var baseMeta = enriched ?? await TryAllSourcesAsync(title, type, ct);
 
-        // Normalize titles to preferred language/style
         NormalizeTitles(baseMeta, title);
-
-        // Apply volume corrections if requested
         if (!string.IsNullOrWhiteSpace(volumeToken)) ApplyVolumeCorrections(baseMeta, volumeToken!.Trim());
+        EnsureSummary(baseMeta, volumeToken);
 
         return baseMeta;
     }
@@ -79,14 +77,12 @@ public class AggregatedMetadataService(
         else if (preferredTitleVariant == "native" && !string.IsNullOrWhiteSpace(native)) canonical = native!;
         else
         {
-            // Fallback priority: English -> Romaji -> Native -> Plain -> fallback
             canonical = !string.IsNullOrWhiteSpace(english) ? english! :
                         !string.IsNullOrWhiteSpace(romaji) ? romaji! :
                         !string.IsNullOrWhiteSpace(native) ? native! :
                         !string.IsNullOrWhiteSpace(plain) ? plain! : fallbackTitle;
         }
 
-        // Force all title variants to canonical to keep consistency across volumes.
         meta["Title"] = canonical;
         meta["TitleEnglish"] = canonical;
         meta["TitleRomaji"] = canonical;
@@ -113,7 +109,7 @@ public class AggregatedMetadataService(
     {
         var targetVol = ParseVolumeNumber(volumeToken);
         if (targetVol == null) return;
-        var canonicalBase = meta["Title"]; // already normalized
+        var canonicalBase = meta["Title"];
         var existingExtract = ExtractVolumeNumber(canonicalBase);
         if (existingExtract != targetVol)
         {
@@ -125,6 +121,28 @@ public class AggregatedMetadataService(
         }
         meta["SeriesIndex"] = targetVol.Value.ToString();
         meta["VolumeNumber"] = targetVol.Value.ToString();
+    }
+
+    private static void EnsureSummary(Dictionary<string,string> meta, string? volumeToken)
+    {
+        bool hasDesc = meta.TryGetValue("Description", out var descVal) && !string.IsNullOrWhiteSpace(descVal);
+        if (hasDesc) return;
+        if (meta.TryGetValue("Snippet", out var snippet) && !string.IsNullOrWhiteSpace(snippet))
+        {
+            meta["Description"] = snippet.Trim();
+            return;
+        }
+        // Build synthetic summary
+        var parts = new List<string>();
+        if (meta.TryGetValue("Title", out var t) && !string.IsNullOrWhiteSpace(t)) parts.Add(t.Trim());
+        if (!string.IsNullOrWhiteSpace(volumeToken)) parts.Add("Volume " + volumeToken!.Trim());
+        if (meta.TryGetValue("Authors", out var a) && !string.IsNullOrWhiteSpace(a)) parts.Add("By " + a);
+        if (meta.TryGetValue("Publisher", out var p) && !string.IsNullOrWhiteSpace(p)) parts.Add("Publisher: " + p);
+        if (meta.TryGetValue("Format", out var f) && !string.IsNullOrWhiteSpace(f)) parts.Add("Format: " + f);
+        if (meta.TryGetValue("Status", out var s) && !string.IsNullOrWhiteSpace(s)) parts.Add("Status: " + s);
+        if (meta.TryGetValue("Genres", out var g) && !string.IsNullOrWhiteSpace(g)) parts.Add("Genres: " + g);
+        var synthetic = string.Join(". ", parts);
+        if (!string.IsNullOrWhiteSpace(synthetic)) meta["Description"] = synthetic;
     }
 
     private static string RemoveVolumeMarkers(string title)

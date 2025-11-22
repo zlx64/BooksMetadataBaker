@@ -258,52 +258,57 @@ public class PdfMetadataUpdater : IPdfMetadataUpdater
         string Q(string v) => '"' + v.Replace("\"", "\\\"") + '"';
         var parts = new List<string>();
 
-        var title = GetFirst(meta, fallbackTitle, "Title", "TitleEnglish", "TitleRomaji", "TitleNative");
+        // Title: now always use original request (fallbackTitle) without any volume markers from data sources.
+        var baseTitle = fallbackTitle;
+        // Strip accidental volume markers if user passed them.
+        baseTitle = System.Text.RegularExpressions.Regex.Replace(baseTitle, @"(?i)\bvol(?:ume)?\s*\d+(?:\.\d+)?", "").Trim();
+        baseTitle = System.Text.RegularExpressions.Regex.Replace(baseTitle, @"\s+", " ").Trim();
+        var title = baseTitle;
         if (meta.TryGetValue("Subtitle", out var subtitle) && !string.IsNullOrWhiteSpace(subtitle) && !title.Contains(subtitle, StringComparison.OrdinalIgnoreCase))
-            title = title + ": " + subtitle;
+            title = title + ": " + subtitle.Trim();
         parts.Add("--title " + Q(title));
 
+        // Series (keep if present; calibre:series will override dc:title for series context but we still keep pure chapter title above)
         var series = GetFirst(meta, string.Empty, "Series", "SeriesName", "calibre:series");
         if (!string.IsNullOrWhiteSpace(series)) parts.Add("--series " + Q(series));
 
         var idx = SeriesIndex(meta);
         if (idx != null) parts.Add("--index " + Q(idx.Value.ToString("0.##", CultureInfo.InvariantCulture)));
-
         var rating = GetFirst(meta, string.Empty, "AverageScore", "Rating", "UserRating");
         if (!string.IsNullOrWhiteSpace(rating)) parts.Add("--rating " + Q(rating));
-
         var desc = GetFirst(meta, string.Empty, "Description", "Snippet");
         if (!string.IsNullOrWhiteSpace(desc)) parts.Add("--comments " + Q(desc));
-
         var publisher = GetFirst(meta, string.Empty, "Publisher");
         if (!string.IsNullOrWhiteSpace(publisher)) parts.Add("--publisher " + Q(publisher));
-
         var dateRaw = GetFirst(meta, string.Empty, "PublishedDate", "StartDate", "StartYear");
         var dateIso = NormDate(dateRaw);
         if (!string.IsNullOrWhiteSpace(dateIso)) parts.Add("--date " + Q(dateIso));
-
         var authorsRaw = GetFirst(meta, string.Empty, "Authors", "Author", "Writer");
         if (!string.IsNullOrWhiteSpace(authorsRaw))
         {
-            // calibre expects authors separated by ' & ' for multiple entries
             var authors = authorsRaw.Split(new[] { ',', ';', '|', '&' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             var joined = string.Join(" & ", authors);
             parts.Add("--authors " + Q(joined));
         }
-
-        var genres = new List<string>();
-        if (meta.TryGetValue("Genres", out var g)) genres.AddRange(g.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
-        if (meta.TryGetValue("Categories", out var c)) genres.AddRange(c.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
-        genres = genres.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        if (genres.Count > 0) parts.Add("--tags " + Q(string.Join(",", genres)));
-
+        var tagList = new List<string>();
+        void AddTags(string? csv)
+        {
+            if (string.IsNullOrWhiteSpace(csv)) return;
+            foreach (var t in csv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                if (!string.IsNullOrWhiteSpace(t)) tagList.Add(t);
+        }
+        if (meta.TryGetValue("Genres", out var gVal)) AddTags(gVal);
+        if (meta.TryGetValue("Categories", out var cVal)) AddTags(cVal);
+        if (meta.TryGetValue("Format", out var fVal) && !string.IsNullOrWhiteSpace(fVal)) tagList.Add(fVal);
+        if (meta.TryGetValue("Status", out var sVal) && !string.IsNullOrWhiteSpace(sVal)) tagList.Add(sVal);
+        if (meta.TryGetValue("Language", out var lVal) && !string.IsNullOrWhiteSpace(lVal)) tagList.Add(lVal);
+        tagList = tagList.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (tagList.Count > 0) parts.Add("--tags " + Q(string.Join(",", tagList)));
         var lang = GetFirst(meta, string.Empty, "Language");
         if (!string.IsNullOrWhiteSpace(lang))
             parts.Add("--language " + Q(lang.Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? lang));
-
         var isbn = GetFirst(meta, string.Empty, "ISBN13", "ISBN10", "ISBN");
         if (!string.IsNullOrWhiteSpace(isbn)) parts.Add("--isbn " + Q(isbn));
-
         parts.Add(Q(filePath));
         return string.Join(' ', parts);
     }
