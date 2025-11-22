@@ -1,6 +1,5 @@
 using System.Text.Json;
 using PrepKavitaPdf.Models;
-using Microsoft.Extensions.Caching.Memory;
 using System.Text.RegularExpressions;
 
 namespace PrepKavitaPdf.Services;
@@ -8,7 +7,6 @@ namespace PrepKavitaPdf.Services;
 public class GoogleBooksService(
     HttpClient http,
     IConfiguration config,
-    IMemoryCache cache,
     ILogger<GoogleBooksService> logger)
 {
     private readonly string apiKey = config["PdfLibrary:GoogleBooks:ApiKey"] ?? string.Empty;
@@ -16,14 +14,7 @@ public class GoogleBooksService(
     public async Task<Dictionary<string,string>> TryFetchAsync(string title, BookType type, CancellationToken ct)
     {
         if (type is not BookType.Book && type is not BookType.LightNovel) return new Dictionary<string,string>();
-
-        var cacheKey = $"GoogleBooks:{type}:{title}";
-        if (cache.TryGetValue(cacheKey, out Dictionary<string,string>? cached) && cached is not null)
-        {
-            logger.LogDebug("GoogleBooks cache hit for {Title} Type={Type}", title, type);
-            return cached;
-        }
-
+        
         try
         {
             var url = $"?q={Uri.EscapeDataString(title)}&maxResults=1&printType=books&projection=full&key={apiKey}";
@@ -37,7 +28,6 @@ public class GoogleBooksService(
             {
                 logger.LogInformation("GoogleBooks no results for {Title}", title);
                 var empty = new Dictionary<string,string>();
-                cache.Set(cacheKey, empty, TimeSpan.FromMinutes(10));
                 return empty;
             }
             var volumeInfo = items[0].GetProperty("volumeInfo");
@@ -70,7 +60,6 @@ public class GoogleBooksService(
             if (volumeInfo.TryGetProperty("infoLink", out var link)) dict["SourceUrl"] = link.GetString() ?? string.Empty;
             dict["Source"] = "GoogleBooks";
 
-            cache.Set(cacheKey, dict, TimeSpan.FromMinutes(10));
             logger.LogInformation("GoogleBooks response mapped for {Title}. Keys={Keys}", title, string.Join(',', dict.Keys));
             return dict;
         }
@@ -78,7 +67,6 @@ public class GoogleBooksService(
         {
             logger.LogWarning(ex, "GoogleBooks fetch failed for {Title} Type={Type}", title, type);
             var empty = new Dictionary<string,string>();
-            cache.Set(cacheKey, empty, TimeSpan.FromMinutes(10));
             return empty;
         }
     }

@@ -57,10 +57,14 @@ public class UploadProcessingService : IUploadProcessingService
             return (new PdfUploadProcessResult("", false, $"Directory not writable: {titleFolder}", 0, new Dictionary<string,string>(), false, false, false, false), new Dictionary<string,string>(), false, $"Directory not writable: {titleFolder}");
         }
 
-        var savePath = GetUniquePdfPath(titleFolder, info.Title, file.FileName);
+        var savePath = GetUniquePdfPath(titleFolder, info.Title, file.FileName); // now overwrites if exists
         try
         {
-            await using var fs = System.IO.File.Create(savePath);
+            if (System.IO.File.Exists(savePath))
+            {
+                logger.LogInformation("Overwriting existing file {Path}", savePath);
+            }
+            await using var fs = System.IO.File.Create(savePath); // truncates existing file
             await file.CopyToAsync(fs, ct);
         }
         catch (Exception ex)
@@ -78,16 +82,12 @@ public class UploadProcessingService : IUploadProcessingService
         {
             var attempts = await metadataUpdater.RunPipelineAsync(savePath, meta, info.Title, ct);
             var success = attempts.Any(a => a.Success);
-            var ghostscriptRan = attempts.Any(a => a.GhostscriptRan);
             var directOk = attempts.Any(a => a.Stage == PdfMetadataAttemptStage.Direct && a.Success);
             var repairOk = attempts.Any(a => a.Stage == PdfMetadataAttemptStage.Repair && a.Success);
-            var forceOk = attempts.Any(a => a.Stage == PdfMetadataAttemptStage.ForceStrip && a.Success);
+            var ghostscriptRan = attempts.Any(a => a.GhostscriptRan);
             var errorMessage = CombineErrors(attempts);
             metadataUpdater.WriteSidecarSummary(savePath, meta, info.Title, success, errorMessage, success, ghostscriptRan);
-            if (success)
-            {
-                metadataUpdater.WriteKavitaSeriesMetadata(savePath, meta, info.Title);
-            }
+            if (success) metadataUpdater.WriteKavitaSeriesMetadata(savePath, meta, info.Title);
             result = new(
                 File: Path.GetFileName(savePath),
                 Success: success,
@@ -96,10 +96,9 @@ public class UploadProcessingService : IUploadProcessingService
                 AppliedMetadata: meta,
                 DirectAttemptSuccess: directOk,
                 RepairAttemptSuccess: repairOk,
-                ForceStripAttemptSuccess: forceOk,
+                ForceStripAttemptSuccess: false,
                 GhostscriptRan: ghostscriptRan);
-            if (!success && !string.IsNullOrWhiteSpace(errorMessage))
-                logger.LogWarning("Metadata update failed for {File}: {Errors}", savePath, errorMessage);
+            if (!success && !string.IsNullOrWhiteSpace(errorMessage)) logger.LogWarning("Metadata update failed for {File}: {Errors}", savePath, errorMessage);
         }
         catch (OperationCanceledException)
         {
@@ -149,17 +148,12 @@ public class UploadProcessingService : IUploadProcessingService
 
     private static string GetUniquePdfPath(string folder, string title, string originalFileName)
     {
+        // Now returns deterministic name and overwrites if exists.
         var baseName = Path.GetFileNameWithoutExtension(originalFileName);
         var match = Regex.Match(baseName, @"\d+(?:\.\d+)?");
         var newBaseName = match.Success ? BuildVolumeName(title, match.Value) : title;
         var sanitized = Sanitize(newBaseName) + ".pdf";
         var path = Path.Combine(folder, sanitized);
-        var counter = 1;
-        while (System.IO.File.Exists(path))
-        {
-            path = Path.Combine(folder, Sanitize(newBaseName) + $" ({counter}).pdf");
-            counter++;
-        }
         return path;
     }
 

@@ -1,23 +1,15 @@
 using System.Text.Json;
 using PrepKavitaPdf.Models;
-using Microsoft.Extensions.Caching.Memory;
 using System.Text.RegularExpressions;
 
 namespace PrepKavitaPdf.Services;
 
-public class AniListService(HttpClient http, IMemoryCache cache, ILogger<AniListService> logger)
+public class AniListService(HttpClient http, ILogger<AniListService> logger)
 {
     public async Task<Dictionary<string,string>> TryFetchAsync(string title, BookType type, CancellationToken ct)
     {
         // Only attempt for Manga or LightNovel
         if (type is not BookType.Manga && type is not BookType.LightNovel) return new Dictionary<string,string>();
-
-        var cacheKey = $"AniList:{type}:{title}";
-        if (cache.TryGetValue(cacheKey, out Dictionary<string,string>? cached) && cached is not null)
-        {
-            logger.LogDebug("AniList cache hit for {Title} Type={Type}", title, type);
-            return cached;
-        }
 
         var mediaType = "MANGA"; // GraphQL enum MediaType
         var format = type == BookType.LightNovel ? "NOVEL" : null; // GraphQL enum MediaFormat
@@ -88,7 +80,6 @@ public class AniListService(HttpClient http, IMemoryCache cache, ILogger<AniList
             }
             dict["Source"] = "AniList";
 
-            cache.Set(cacheKey, dict, TimeSpan.FromMinutes(10));
             logger.LogInformation("AniList response mapped for {Title}. Keys={Keys}", title, string.Join(',', dict.Keys));
             return dict;
         }
@@ -96,7 +87,6 @@ public class AniListService(HttpClient http, IMemoryCache cache, ILogger<AniList
         {
             logger.LogWarning(ex, "AniList fetch failed for {Title} Type={Type}", title, type);
             var empty = new Dictionary<string,string>();
-            cache.Set(cacheKey, empty, TimeSpan.FromMinutes(10));
             return empty;
         }
     }

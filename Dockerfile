@@ -1,7 +1,7 @@
 # Base runtime image
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS base
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ghostscript \
+    && apt-get install -y --no-install-recommends ghostscript calibre \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /data/books \
     && chmod -R 0777 /data
@@ -33,13 +33,3 @@ COPY --from=publish /app/publish .
 # docker run -v D:/test_data/books:/data/books -e PdfLibrary__RootFolder=/data/books <image>
 VOLUME ["/data/books"]
 ENTRYPOINT ["dotnet", "PrepKavitaPdf.dll"]
-
-
-#docker run -d \
-#  --restart=always \
-#  -p 5880:8080 \
-#  --name prepkavitapdf \
-#  --user 1000:1000 \
-#  -v /data/books:/data/books:rw \
-#  -e PdfLibrary__RootFolder=/data/books \
-#  192.168.31.52:5858/prepkavitapdf:latest

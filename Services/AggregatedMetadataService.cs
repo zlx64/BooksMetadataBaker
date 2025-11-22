@@ -16,7 +16,7 @@ public class AggregatedMetadataService(
         {
             ani.TryFetchAsync(title, type, ct),
             google.TryFetchAsync(title, type, ct),
-            comic.TryFetchAsync(title, type, ct)
+            //comic.TryFetchAsync(title, type, ct)
         };
         var results = await Task.WhenAll(tasks);
         // merge preferring first non-empty values

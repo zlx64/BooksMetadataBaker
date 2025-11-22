@@ -8,7 +8,6 @@ namespace PrepKavitaPdf.Services;
 public class ComicVineService(
     HttpClient http,
     IConfiguration config,
-    IMemoryCache cache,
     ILogger<ComicVineService> logger)
 {
     private readonly string apiKey = config["PdfLibrary:ComicVine:ApiKey"] ?? string.Empty;
@@ -18,12 +17,7 @@ public class ComicVineService(
         if (type is not BookType.Comic) return new Dictionary<string,string>();
 
         var cacheKey = $"ComicVine:{type}:{title}";
-        if (cache.TryGetValue(cacheKey, out Dictionary<string,string>? cached) && cached is not null)
-        {
-            logger.LogDebug("ComicVine cache hit for {Title} Type={Type}", title, type);
-            return cached;
-        }
-
+        
         try
         {
             var url = $"search/?api_key={apiKey}&format=json&query={Uri.EscapeDataString(title)}&resources=volume";
@@ -36,7 +30,6 @@ public class ComicVineService(
             {
                 logger.LogInformation("ComicVine no results for {Title}", title);
                 var empty = new Dictionary<string,string>();
-                cache.Set(cacheKey, empty, TimeSpan.FromMinutes(10));
                 return empty;
             }
             var first = results[0];
@@ -50,7 +43,6 @@ public class ComicVineService(
             if (first.TryGetProperty("api_detail_url", out var apiUrl)) dict["ApiDetailUrl"] = apiUrl.GetString() ?? string.Empty;
             dict["Source"] = "ComicVine";
 
-            cache.Set(cacheKey, dict, TimeSpan.FromMinutes(10));
             logger.LogInformation("ComicVine response mapped for {Title}. Keys={Keys}", title, string.Join(',', dict.Keys));
             return dict;
         }
@@ -58,7 +50,6 @@ public class ComicVineService(
         {
             logger.LogWarning(ex, "ComicVine fetch failed for {Title} Type={Type}", title, type);
             var empty = new Dictionary<string,string>();
-            cache.Set(cacheKey, empty, TimeSpan.FromMinutes(10));
             return empty;
         }
     }
