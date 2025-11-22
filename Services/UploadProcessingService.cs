@@ -73,7 +73,17 @@ public class UploadProcessingService : IUploadProcessingService
             return (new PdfUploadProcessResult(Path.GetFileName(savePath), false, $"Save file failed: {ex.GetType().Name}: {ex.Message}", 0, new Dictionary<string,string>(), false, false, false, false), new Dictionary<string,string>(), false, ex.Message);
         }
 
-        var meta = await metadataService.FetchMetadataAsync(info.Title, info.Type, ct);
+        // Extract volume token from incoming file name if present
+        var baseName = Path.GetFileNameWithoutExtension(file.FileName);
+        var volMatch = Regex.Match(baseName, @"(\b|_)(?:v|vol|volume)[ _-]?(\d+(?:\.\d+)?)", RegexOptions.IgnoreCase);
+        if (!volMatch.Success)
+        {
+            // fallback simple number match at end or anywhere
+            var numMatch = Regex.Match(baseName, @"\b(\d{1,3}(?:\.\d+)?)\b");
+            volMatch = numMatch;
+        }
+        string? volumeToken = volMatch.Success ? volMatch.Groups[2].Value : null;
+        var meta = await metadataService.FetchMetadataAsync(info.Title, info.Type, volumeToken, ct);
         if (ct.IsCancellationRequested)
             return (new PdfUploadProcessResult(Path.GetFileName(savePath), false, "Cancelled", 0, meta, false, false, false, false), meta, true, null);
 
