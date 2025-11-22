@@ -5,43 +5,6 @@ using System.Text.RegularExpressions;
 
 namespace PrepKavitaPdf.Services;
 
-public enum PdfMetadataAttemptStage
-{
-    Direct,
-    Repair
-}
-
-public sealed record PdfMetadataAttemptResult(
-    string FilePath,
-    PdfMetadataAttemptStage Stage,
-    bool Success,
-    string? ErrorMessage,
-    bool GhostscriptRan,
-    bool MetadataApplied);
-
-public interface IPdfMetadataUpdater
-{
-    Task<IReadOnlyList<PdfMetadataAttemptResult>> RunPipelineAsync(
-        string filePath,
-        IDictionary<string, string> metadata,
-        string fallbackTitle,
-        CancellationToken ct);
-
-    void WriteSidecarSummary(
-        string filePath,
-        IDictionary<string, string> metadata,
-        string fallbackTitle,
-        bool success,
-        string? errors,
-        bool metadataApplied,
-        bool ghostscriptRan);
-
-    void WriteKavitaSeriesMetadata(
-        string filePath,
-        IDictionary<string, string> metadata,
-        string fallbackTitle);
-}
-
 public class PdfMetadataUpdater : IPdfMetadataUpdater
 {
     private const int GhostscriptTimeoutMs = 120_000;
@@ -57,6 +20,7 @@ public class PdfMetadataUpdater : IPdfMetadataUpdater
         gsEnabled = !bool.TryParse(config["Tools:GhostscriptEnabled"], out var gse) || gse;
         gsPathCfg = string.IsNullOrWhiteSpace(config["Tools:GhostscriptPath"]) ? "gs" : config["Tools:GhostscriptPath"]!;
         this.logger = logger;
+
         logger.LogInformation(
             "PdfMetadataUpdater initialized. SidecarEnabled={SidecarEnabled}, GhostscriptEnabled={GhostscriptEnabled}, GhostscriptPathSetting={GhostscriptPath} (ebook-meta primary)",
             sidecarEnabled,
@@ -71,10 +35,19 @@ public class PdfMetadataUpdater : IPdfMetadataUpdater
         CancellationToken ct)
     {
         var attempts = new List<PdfMetadataAttemptResult>(2);
+        var request = new MetadataRequest(filePath, metadata, fallbackTitle);
 
-        var (directOk, directErr) = await DirectAttemptAsync(filePath, metadata, fallbackTitle, ct);
-        attempts.Add(new(filePath, PdfMetadataAttemptStage.Direct, directOk, directErr, false, directOk));
-        if (ct.IsCancellationRequested || directOk) return attempts;
+        var direct = await DirectAttemptAsync(request, ct);
+        attempts.Add(new PdfMetadataAttemptResult(
+            filePath,
+            PdfMetadataAttemptStage.Direct,
+            direct.Success,
+            direct.ErrorMessage,
+            false,
+            direct.Success));
+
+        if (ct.IsCancellationRequested || direct.Success)
+            return attempts;
 
         if (!gsEnabled)
         {
@@ -82,29 +55,40 @@ public class PdfMetadataUpdater : IPdfMetadataUpdater
             return attempts;
         }
 
-        var (repairOk, repairErr, gsRan) = await RepairAttemptAsync(filePath, metadata, fallbackTitle, ct);
-        attempts.Add(new(filePath, PdfMetadataAttemptStage.Repair, repairOk, repairErr, gsRan, repairOk));
+        var repair = await RepairAttemptAsync(request, ct);
+        attempts.Add(new PdfMetadataAttemptResult(
+            filePath,
+            PdfMetadataAttemptStage.Repair,
+            repair.Success,
+            repair.ErrorMessage,
+            repair.GhostscriptRan,
+            repair.Success));
+
         return attempts;
     }
 
-    public Task<(bool ok, string)> DirectAttemptAsync(
-        string filePath,
-        IDictionary<string, string> metadata,
-        string fallbackTitle,
+    public Task<DirectAttemptResult> DirectAttemptAsync(
+        MetadataRequest request,
         CancellationToken ct)
     {
-        if (ct.IsCancellationRequested) return Task.FromResult((false, "Cancelled"));
-        var ok = TryWriteMetadataWithCalibre(filePath, metadata, fallbackTitle, out var err);
-        return Task.FromResult((ok, ok ? "" : err ?? ""));
+        if (ct.IsCancellationRequested)
+            return Task.FromResult(new DirectAttemptResult(false, "Cancelled"));
+
+        var ok = TryWriteMetadataWithCalibre(
+            request.FilePath,
+            request.Metadata,
+            request.FallbackTitle,
+            out var err);
+
+        return Task.FromResult(new DirectAttemptResult(ok, ok ? string.Empty : err ?? string.Empty));
     }
 
-    public Task<(bool Success, string? Error, bool GhostscriptRan)> RepairAttemptAsync(
-        string filePath,
-        IDictionary<string, string> metadata,
-        string fallbackTitle,
+    public Task<RepairAttemptResult> RepairAttemptAsync(
+        MetadataRequest request,
         CancellationToken ct)
     {
-        if (ct.IsCancellationRequested) return Task.FromResult<(bool, string?, bool)>((false, "Cancelled", false));
+        if (ct.IsCancellationRequested)
+            return Task.FromResult(new RepairAttemptResult(false, "Cancelled", false));
 
         string? errors = null;
         var gsRan = false;
@@ -112,216 +96,40 @@ public class PdfMetadataUpdater : IPdfMetadataUpdater
 
         try
         {
-            if (RunGhostscriptTransform(filePath, outputPath, out var gsErr))
+            if (RunGhostscriptTransform(request.FilePath, outputPath, out var gsErr))
             {
                 gsRan = true;
             }
             else
             {
                 errors = Combine(errors, gsErr);
-                outputPath = filePath; // fallback
+                outputPath = request.FilePath; // fallback
             }
 
             if (ct.IsCancellationRequested)
-                return Task.FromResult<(bool, string?, bool)>((false, "Cancelled", gsRan));
+                return Task.FromResult(new RepairAttemptResult(false, "Cancelled", gsRan));
 
-            if (TryWriteMetadataWithCalibre(outputPath, metadata, fallbackTitle, out var metaErr))
+            if (TryWriteMetadataWithCalibre(outputPath, request.Metadata, request.FallbackTitle, out var metaErr))
             {
-                if (outputPath != filePath && File.Exists(outputPath))
-                    File.Copy(outputPath, filePath, true);
-                return Task.FromResult<(bool, string?, bool)>((true, null, gsRan));
+                if (outputPath != request.FilePath && File.Exists(outputPath))
+                    File.Copy(outputPath, request.FilePath, overwrite: true);
+
+                return Task.FromResult(new RepairAttemptResult(true, null, gsRan));
             }
+
             errors = Combine(errors, metaErr);
         }
         catch (Exception ex)
         {
             errors = Combine(errors, ex.Message);
-            logger.LogError(ex, "Repair attempt failed for {File}", filePath);
+            logger.LogError(ex, "Repair attempt failed for {File}", request.FilePath);
         }
         finally
         {
             CleanupTemp(workDir);
         }
 
-        return Task.FromResult<(bool, string?, bool)>((false, errors, gsRan));
-    }
-
-    private bool TryWriteMetadataWithCalibre(
-        string path,
-        IDictionary<string, string> metadata,
-        string fallbackTitle,
-        out string? error)
-    {
-        error = null;
-        try
-        {
-            var args = BuildEbookMetaArgs(path, metadata, fallbackTitle);
-            var psi = new ProcessStartInfo("ebook-meta", args)
-            {
-                RedirectStandardError = true,
-                RedirectStandardOutput = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            using var proc = Process.Start(psi);
-            if (proc == null) { error = "failed to start ebook-meta"; return false; }
-            proc.WaitForExit();
-            var stderr = proc.StandardError.ReadToEnd();
-            var stdout = proc.StandardOutput.ReadToEnd();
-            if (proc.ExitCode != 0)
-            {
-                error = string.IsNullOrWhiteSpace(stderr + stdout) ? $"ebook-meta exit {proc.ExitCode}" : stderr + stdout;
-                return false;
-            }
-            return true;
-        }
-        catch (Exception ex)
-        {
-            error = ex.Message;
-            logger.LogError(ex, "ebook-meta exception for {File}", path);
-            return false;
-        }
-    }
-
-    private static (string WorkDir, string OutputPath) PrepareTemp(string label)
-    {
-        var workDir = Path.Combine(Path.GetTempPath(), $"pdf_meta_{label}_{Guid.NewGuid():N}");
-        Directory.CreateDirectory(workDir);
-        var outPath = Path.Combine(workDir, Guid.NewGuid().ToString("N") + ".pdf");
-        return (workDir, outPath);
-    }
-
-    private static void CleanupTemp(string dir)
-    {
-        try
-        {
-            if (Directory.Exists(dir)) 
-                Directory.Delete(dir, true);
-        }
-        catch
-        {
-            // ignored
-        }
-    }
-
-    private bool RunGhostscriptTransform(string input, string output, out string? err)
-    {
-        err = null;
-        var gsPath = ResolveGhostscript();
-        if (gsPath == null) { err = "ghostscript not found"; return false; }
-
-        var args = string.Join(' ', new[]
-        {
-            "-dNOPAUSE",
-            "-dBATCH",
-            "-dSAFER",
-            "-sDEVICE=pdfwrite",
-            "-dCompatibilityLevel=1.7",
-            "-dDetectDuplicateImages=true",
-            "-dCompressFonts=true",
-            "-dPDFSETTINGS=/prepress",
-            $"-sOutputFile={Escape(output)}",
-            Escape(input)
-        });
-
-        var psi = new ProcessStartInfo(gsPath, args)
-        {
-            RedirectStandardError = true,
-            RedirectStandardOutput = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
-
-        using var proc = Process.Start(psi);
-        if (proc == null) { err = "failed to start ghostscript"; return false; }
-        if (!proc.WaitForExit(GhostscriptTimeoutMs)) { TryKill(proc); err = $"ghostscript timeout {GhostscriptTimeoutMs/1000}s"; return false; }
-
-        var stderr = proc.StandardError.ReadToEnd();
-        var stdout = proc.StandardOutput.ReadToEnd();
-        if (proc.ExitCode != 0)
-        {
-            err = string.IsNullOrWhiteSpace(stderr + stdout) ? $"gs exit {proc.ExitCode}" : stderr + stdout;
-            return false;
-        }
-
-        if (!File.Exists(output) || new FileInfo(output).Length == 0)
-        {
-            err = "ghostscript produced empty output";
-            return false;
-        }
-        return true;
-    }
-
-    private void TryKill(Process p)
-    {
-        try
-        {
-            p.Kill();
-        }
-        catch
-        {
-            logger.LogWarning("Failed to kill process");
-        }
-    }
-
-    private static string Escape(string p) => p.Contains(' ') ? '"' + p + '"' : p;
-
-    private static string BuildEbookMetaArgs(
-        string filePath,
-        IDictionary<string, string> meta,
-        string fallbackTitle)
-    {
-        string Q(string v) => '"' + v.Replace("\"", "\\\"") + '"';
-        var parts = new List<string>();
-
-        // Title: now always use original request (fallbackTitle) without any volume markers from data sources.
-        var baseTitle = fallbackTitle;
-        // Strip accidental volume markers if user passed them.
-        baseTitle = Regex.Replace(baseTitle, @"(?i)\bvol(?:ume)?\s*\d+(?:\.\d+)?", "").Trim();
-        baseTitle = Regex.Replace(baseTitle, @"\s+", " ").Trim();
-        var title = baseTitle;
-        if (meta.TryGetValue("Subtitle", out var subtitle) && !string.IsNullOrWhiteSpace(subtitle) && !title.Contains(subtitle, StringComparison.OrdinalIgnoreCase))
-            title = title + ": " + subtitle.Trim();
-        parts.Add("--title " + Q(title));
-        parts.Add("--series " + Q(fallbackTitle));
-
-        var rating = GetFirst(meta, string.Empty, "AverageScore", "Rating", "UserRating");
-        if (!string.IsNullOrWhiteSpace(rating)) parts.Add("--rating " + Q(rating));
-        var desc = GetFirst(meta, string.Empty, "Description", "Snippet");
-        if (!string.IsNullOrWhiteSpace(desc)) parts.Add("--comments " + Q(desc));
-        var publisher = GetFirst(meta, string.Empty, "Publisher");
-        if (!string.IsNullOrWhiteSpace(publisher)) parts.Add("--publisher " + Q(publisher));
-        var dateRaw = GetFirst(meta, string.Empty, "PublishedDate", "StartDate", "StartYear");
-        var dateIso = NormDate(dateRaw);
-        if (!string.IsNullOrWhiteSpace(dateIso)) parts.Add("--date " + Q(dateIso));
-        var authorsRaw = GetFirst(meta, string.Empty, "Authors", "Author", "Writer");
-        if (!string.IsNullOrWhiteSpace(authorsRaw))
-        {
-            var authors = authorsRaw.Split(new[] { ',', ';', '|', '&' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-            var joined = string.Join(" & ", authors);
-            parts.Add("--authors " + Q(joined));
-        }
-        var tagList = new List<string>();
-        void AddTags(string? csv)
-        {
-            if (string.IsNullOrWhiteSpace(csv)) return;
-            foreach (var t in csv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-                if (!string.IsNullOrWhiteSpace(t)) tagList.Add(t);
-        }
-        if (meta.TryGetValue("Genres", out var gVal)) AddTags(gVal);
-        if (meta.TryGetValue("Categories", out var cVal)) AddTags(cVal);
-        if (meta.TryGetValue("Format", out var fVal) && !string.IsNullOrWhiteSpace(fVal)) tagList.Add(fVal);
-        if (meta.TryGetValue("Status", out var sVal) && !string.IsNullOrWhiteSpace(sVal)) tagList.Add(sVal);
-        if (meta.TryGetValue("Language", out var lVal) && !string.IsNullOrWhiteSpace(lVal)) tagList.Add(lVal);
-        tagList = tagList.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        if (tagList.Count > 0) parts.Add("--tags " + Q(string.Join(",", tagList)));
-        var lang = GetFirst(meta, string.Empty, "Language");
-        if (!string.IsNullOrWhiteSpace(lang))
-            parts.Add("--language " + Q(lang.Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? lang));
-        var isbn = GetFirst(meta, string.Empty, "ISBN13", "ISBN10", "ISBN");
-        if (!string.IsNullOrWhiteSpace(isbn)) parts.Add("--isbn " + Q(isbn));
-        parts.Add(Q(filePath));
-        return string.Join(' ', parts);
+        return Task.FromResult(new RepairAttemptResult(false, errors, gsRan));
     }
 
     public void WriteSidecarSummary(
@@ -331,50 +139,14 @@ public class PdfMetadataUpdater : IPdfMetadataUpdater
         bool success,
         string? errors,
         bool metadataApplied,
-        bool ghostscriptRan) => WriteSidecar(filePath, metadata, fallbackTitle, success, errors, metadataApplied, ghostscriptRan);
-
-    private static string NormDate(string raw)
-    {
-        if (string.IsNullOrWhiteSpace(raw)) return string.Empty;
-        if (DateTime.TryParse(raw, out var dt)) return dt.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-        var digits = new string(raw.Where(char.IsDigit).ToArray());
-        if (digits.Length >= 8) return digits.Substring(0, 4) + "-" + digits.Substring(4, 2) + "-" + digits.Substring(6, 2);
-        if (digits.Length >= 6) return digits.Substring(0, 4) + "-" + digits.Substring(4, 2) + "-01";
-        if (digits.Length >= 4) return digits.Substring(0, 4);
-        return raw;
-    }
-
-    private void WriteSidecar(
-        string filePath,
-        IDictionary<string, string> metadata,
-        string fallbackTitle,
-        bool success,
-        string? errors,
-        bool metaApplied,
-        bool gsRan)
-    {
-        if (!sidecarEnabled) return;
-        try
-        {
-            var sidecar = filePath + ".meta.json";
-            var obj = new Dictionary<string, object?>
-            {
-                ["AppliedTitle"] = GetFirst(metadata, fallbackTitle, "Title", "TitleEnglish", "TitleRomaji", "TitleNative"),
-                ["Success"] = success,
-                ["MetadataApplied"] = metaApplied,
-                ["GhostscriptRan"] = gsRan,
-                ["Errors"] = errors,
-                ["TimestampUtc"] = DateTime.UtcNow
-            };
-            foreach (var kv in metadata) obj[kv.Key] = kv.Value;
-            var json = JsonSerializer.Serialize(obj, new JsonSerializerOptions { WriteIndented = true });
-            File.WriteAllText(sidecar, json);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Failed writing sidecar metadata for {File}", filePath);
-        }
-    }
+        bool ghostscriptRan) => WriteSidecar(new SidecarSummary(
+            filePath,
+            metadata,
+            fallbackTitle,
+            success,
+            errors,
+            metadataApplied,
+            ghostscriptRan));
 
     public void WriteKavitaSeriesMetadata(
         string filePath,
@@ -384,39 +156,16 @@ public class PdfMetadataUpdater : IPdfMetadataUpdater
         try
         {
             var dir = Path.GetDirectoryName(filePath);
-            if (dir is null) return;
+            if (dir is null)
+                return;
+
             var kavitaPath = Path.Combine(dir, "series.json");
-
             var title = GetFirst(metadata, fallbackTitle, "Title", "TitleEnglish", "TitleRomaji", "TitleNative");
-            var altTitles = new List<string>();
-            void AddAlt(string key)
-            {
-                if (metadata.TryGetValue(key, out var v) && !string.IsNullOrWhiteSpace(v) && !v.Equals(title, StringComparison.OrdinalIgnoreCase) && !altTitles.Contains(v))
-                    altTitles.Add(v);
-            }
-            AddAlt("TitleEnglish");
-            AddAlt("TitleRomaji");
-            AddAlt("TitleNative");
 
-            var authors = metadata.TryGetValue("Authors", out var a)
-                ? a.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList()
-                : new List<string>();
-
-            var genres = new List<string>();
-            if (metadata.TryGetValue("Genres", out var g)) genres.AddRange(g.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
-            if (metadata.TryGetValue("Categories", out var c)) genres.AddRange(c.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
-            genres = genres.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-
-            var tags = new List<string>();
-            void AddTag(string key)
-            {
-                if (metadata.TryGetValue(key, out var v) && !string.IsNullOrWhiteSpace(v)) tags.Add(v);
-            }
-            AddTag("Format");
-            AddTag("Status");
-            AddTag("Source");
-            AddTag("Language");
-
+            var altTitles = CollectAlternateTitles(metadata, title);
+            var authors = SplitAuthors(metadata, "Authors");
+            var genres = GetGenres(metadata);
+            var tags = GetTags(metadata);
             var year = ExtractYear(metadata);
             var ageRating = InferAgeRating(metadata, genres, tags);
             var format = metadata.TryGetValue("Format", out var fmt) ? fmt : string.Empty;
@@ -431,7 +180,7 @@ public class PdfMetadataUpdater : IPdfMetadataUpdater
                 ["ReleaseYear"] = year,
                 ["Format"] = format,
                 ["Genres"] = genres,
-                ["Tags"] = tags.Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
+                ["Tags"] = tags,
                 ["Language"] = metadata.TryGetValue("Language", out var lang) ? lang : string.Empty,
                 ["AgeRating"] = ageRating,
                 ["Authors"] = authors,
@@ -453,34 +202,347 @@ public class PdfMetadataUpdater : IPdfMetadataUpdater
         }
     }
 
+    private bool TryWriteMetadataWithCalibre(
+        string path,
+        IDictionary<string, string> metadata,
+        string fallbackTitle,
+        out string? error)
+    {
+        error = null;
+        try
+        {
+            var args = BuildEbookMetaArgs(path, metadata, fallbackTitle);
+            var psi = new ProcessStartInfo("ebook-meta", args)
+            {
+                RedirectStandardError = true,
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using var proc = Process.Start(psi);
+            if (proc == null)
+            {
+                error = "failed to start ebook-meta";
+                return false;
+            }
+
+            proc.WaitForExit();
+            var stderr = proc.StandardError.ReadToEnd();
+            var stdout = proc.StandardOutput.ReadToEnd();
+
+            if (proc.ExitCode != 0)
+            {
+                error = string.IsNullOrWhiteSpace(stderr + stdout)
+                    ? $"ebook-meta exit {proc.ExitCode}"
+                    : stderr + stdout;
+                return false;
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+            logger.LogError(ex, "ebook-meta exception for {File}", path);
+            return false;
+        }
+    }
+
+    private bool RunGhostscriptTransform(string input, string output, out string? err)
+    {
+        err = null;
+        var gsPath = ResolveGhostscript();
+        if (gsPath == null)
+        {
+            err = "ghostscript not found";
+            return false;
+        }
+
+        var args = BuildGhostscriptArgs(input, output);
+        var psi = new ProcessStartInfo(gsPath, args)
+        {
+            RedirectStandardError = true,
+            RedirectStandardOutput = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+
+        using var proc = Process.Start(psi);
+        if (proc == null)
+        {
+            err = "failed to start ghostscript";
+            return false;
+        }
+
+        if (!proc.WaitForExit(GhostscriptTimeoutMs))
+        {
+            TryKill(proc);
+            err = $"ghostscript timeout {GhostscriptTimeoutMs / 1000}s";
+            return false;
+        }
+
+        var stderr = proc.StandardError.ReadToEnd();
+        var stdout = proc.StandardOutput.ReadToEnd();
+
+        if (proc.ExitCode != 0)
+        {
+            err = string.IsNullOrWhiteSpace(stderr + stdout) ? $"gs exit {proc.ExitCode}" : stderr + stdout;
+            return false;
+        }
+
+        if (!File.Exists(output) || new FileInfo(output).Length == 0)
+        {
+            err = "ghostscript produced empty output";
+            return false;
+        }
+
+        return true;
+    }
+
+    private static string BuildGhostscriptArgs(string input, string output) => string.Join(' ', new[]
+    {
+        "-dNOPAUSE",
+        "-dBATCH",
+        "-dSAFER",
+        "-sDEVICE=pdfwrite",
+        "-dCompatibilityLevel=1.7",
+        "-dDetectDuplicateImages=true",
+        "-dCompressFonts=true",
+        "-dPDFSETTINGS=/prepress",
+        $"-sOutputFile={Escape(output)}",
+        Escape(input)
+    });
+
+    private void TryKill(Process p)
+    {
+        try
+        {
+            p.Kill();
+        }
+        catch
+        {
+            logger.LogWarning("Failed to kill process");
+        }
+    }
+
+    private static string Escape(string p) => p.Contains(' ') ? '"' + p + '"' : p;
+
+    private static (string WorkDir, string OutputPath) PrepareTemp(string label)
+    {
+        var workDir = Path.Combine(Path.GetTempPath(), $"pdf_meta_{label}_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(workDir);
+        var outPath = Path.Combine(workDir, Guid.NewGuid().ToString("N") + ".pdf");
+        return (workDir, outPath);
+    }
+
+    private static void CleanupTemp(string dir)
+    {
+        try
+        {
+            if (Directory.Exists(dir))
+                Directory.Delete(dir, recursive: true);
+        }
+        catch
+        {
+            // ignored
+        }
+    }
+
+    private static string BuildEbookMetaArgs(
+        string filePath,
+        IDictionary<string, string> meta,
+        string fallbackTitle)
+    {
+        string Q(string v) => '"' + v.Replace("\"", "\\\"") + '"';
+        var parts = new List<string>();
+
+        var baseTitle = Regex.Replace(fallbackTitle, @"(?i)\bvol(?:ume)?\s*\d+(?:\.\d+)?", string.Empty).Trim();
+        baseTitle = Regex.Replace(baseTitle, @"\s+", " ").Trim();
+
+        var title = baseTitle;
+        if (meta.TryGetValue("Subtitle", out var subtitle) &&
+            !string.IsNullOrWhiteSpace(subtitle) &&
+            !title.Contains(subtitle, StringComparison.OrdinalIgnoreCase))
+        {
+            title += ": " + subtitle.Trim();
+        }
+
+        parts.Add("--title " + Q(title));
+        parts.Add("--series " + Q(fallbackTitle));
+
+        var idx = SeriesIndex(meta);
+        if (idx != null) parts.Add("--index " + Q(idx.Value.ToString("0.##", CultureInfo.InvariantCulture)));
+
+        var rating = GetFirst(meta, string.Empty, "AverageScore", "Rating", "UserRating");
+        if (!string.IsNullOrWhiteSpace(rating))
+            parts.Add("--rating " + Q(rating));
+
+        var desc = GetFirst(meta, string.Empty, "Description", "Snippet");
+        if (!string.IsNullOrWhiteSpace(desc))
+            parts.Add("--comments " + Q(desc));
+
+        var publisher = GetFirst(meta, string.Empty, "Publisher");
+        if (!string.IsNullOrWhiteSpace(publisher))
+            parts.Add("--publisher " + Q(publisher));
+
+        var dateRaw = GetFirst(meta, string.Empty, "PublishedDate", "StartDate", "StartYear");
+        var dateIso = NormDate(dateRaw);
+        if (!string.IsNullOrWhiteSpace(dateIso))
+            parts.Add("--date " + Q(dateIso));
+
+        var authorsRaw = GetFirst(meta, string.Empty, "Authors", "Author", "Writer");
+        if (!string.IsNullOrWhiteSpace(authorsRaw))
+        {
+            var authors = authorsRaw.Split(new[] { ',', ';', '|', '&' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            parts.Add("--authors " + Q(string.Join(" & ", authors)));
+        }
+
+        var tagList = GetTags(meta);
+        if (tagList.Count > 0)
+            parts.Add("--tags " + Q(string.Join(',', tagList)));
+
+        var lang = GetFirst(meta, string.Empty, "Language");
+        if (!string.IsNullOrWhiteSpace(lang))
+        {
+            parts.Add("--language " + Q(
+                lang.Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries)
+                    .FirstOrDefault() ?? lang));
+        }
+
+        parts.Add(Q(filePath));
+        return string.Join(' ', parts);
+    }
+
+    private static string NormDate(string raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+            return string.Empty;
+        if (DateTime.TryParse(raw, out var dt))
+            return dt.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        var digits = new string(raw.Where(char.IsDigit).ToArray());
+        if (digits.Length >= 8)
+            return digits[..4] + "-" + digits.Substring(4, 2) + "-" + digits.Substring(6, 2);
+        if (digits.Length >= 6)
+            return digits[..4] + "-" + digits.Substring(4, 2) + "-01";
+        if (digits.Length >= 4)
+            return digits[..4];
+        return raw;
+    }
+
+    private static double? SeriesIndex(IDictionary<string, string> m)
+    {
+        foreach (var key in new[] { "Volume", "VolumeNumber", "SeriesIndex", "Issue", "IssueNumber", "Chapter", "calibreSI:series_index" })
+        {
+            if (m.TryGetValue(key, out var v) && !string.IsNullOrWhiteSpace(v))
+            {
+                if (double.TryParse(v.Replace('#', ' ').Trim(), NumberStyles.Any, CultureInfo.InvariantCulture, out var d)) return d;
+                var num = new string(v.Where(c => char.IsDigit(c) || c == '.').ToArray());
+                if (double.TryParse(num, NumberStyles.Any, CultureInfo.InvariantCulture, out d)) return d;
+            }
+        }
+        return null;
+    }
+
+    private void WriteSidecar(SidecarSummary summary)
+    {
+        if (!sidecarEnabled)
+            return;
+        try
+        {
+            var sidecar = summary.FilePath + ".meta.json";
+            var obj = new Dictionary<string, object?>
+            {
+                ["AppliedTitle"] = GetFirst(summary.Metadata, summary.FallbackTitle, "Title", "TitleEnglish", "TitleRomaji", "TitleNative"),
+                ["Success"] = summary.Success,
+                ["MetadataApplied"] = summary.MetadataApplied,
+                ["GhostscriptRan"] = summary.GhostscriptRan,
+                ["Errors"] = summary.Errors,
+                ["TimestampUtc"] = DateTime.UtcNow
+            };
+            foreach (var kv in summary.Metadata)
+                obj[kv.Key] = kv.Value;
+            var json = JsonSerializer.Serialize(obj, new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(sidecar, json);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed writing sidecar metadata for {File}", summary.FilePath);
+        }
+    }
+
+    private static List<string> CollectAlternateTitles(IDictionary<string, string> meta, string mainTitle)
+    {
+        var list = new List<string>();
+        void Add(string key)
+        {
+            if (meta.TryGetValue(key, out var v) && !string.IsNullOrWhiteSpace(v) && !v.Equals(mainTitle, StringComparison.OrdinalIgnoreCase) && !list.Contains(v))
+                list.Add(v);
+        }
+        Add("TitleEnglish");
+        Add("TitleRomaji");
+        Add("TitleNative");
+        return list;
+    }
+
+    private static List<string> SplitAuthors(IDictionary<string, string> meta, string key)
+    {
+        if (!meta.TryGetValue(key, out var raw) || string.IsNullOrWhiteSpace(raw))
+            return new List<string>();
+        return raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+    }
+
+    private static List<string> GetGenres(IDictionary<string, string> meta)
+    {
+        var genres = new List<string>();
+        void AddCsv(string key)
+        {
+            if (!meta.TryGetValue(key, out var v) || string.IsNullOrWhiteSpace(v)) return;
+            genres.AddRange(v.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+        }
+        AddCsv("Genres");
+        AddCsv("Categories");
+        return genres.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    private static List<string> GetTags(IDictionary<string, string> meta)
+    {
+        var tags = new List<string>();
+        void Add(string key)
+        {
+            if (meta.TryGetValue(key, out var v) && !string.IsNullOrWhiteSpace(v))
+                tags.Add(v);
+        }
+        Add("Format");
+        Add("Status");
+        Add("Source");
+        Add("Language");
+        if (meta.TryGetValue("Genres", out var g)) tags.AddRange(g.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+        if (meta.TryGetValue("Categories", out var c)) tags.AddRange(c.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+        return tags.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
     private static int InferAgeRating(
         IDictionary<string, string> meta,
         IEnumerable<string> genres,
         IEnumerable<string> tags)
     {
         var tokens = new List<string>();
-
         void Collect(string? v)
         {
             if (!string.IsNullOrWhiteSpace(v))
                 tokens.AddRange(v.Split(new[] { ' ', ',', ';', '.', '/', '\\', '|' }, StringSplitOptions.RemoveEmptyEntries));
         }
-
         foreach (var g in genres) Collect(g);
         foreach (var t in tags) Collect(t);
         if (meta.TryGetValue("Description", out var desc)) Collect(desc);
-
         var lowered = tokens.Select(x => x.ToLowerInvariant()).ToList();
-
         string[] adult = { "adult", "hentai", "mature", "18", "erotic", "nsfw", "porn", "smut" };
         if (lowered.Any(l => adult.Contains(l))) return 18;
-
         string[] teenPlus = { "seinen", "violence", "gore", "horror", "dark" };
         if (lowered.Any(l => teenPlus.Contains(l))) return 16;
-
         string[] teen = { "shounen", "romance", "ya", "teen" };
         if (lowered.Any(l => teen.Contains(l))) return 13;
-
         return 0;
     }
 
@@ -496,25 +558,23 @@ public class PdfMetadataUpdater : IPdfMetadataUpdater
             }
         }
         if (pick == null) return 0;
-
         foreach (var part in pick.Split('-', ' ', '/', '.'))
         {
             if (part.Length == 4 && int.TryParse(part, out var yr) && yr > 0) return yr;
         }
-
         var digits = new string(pick.Where(char.IsDigit).ToArray());
-        if (digits.Length >= 4 && int.TryParse(digits.Substring(0, 4), out var y2)) return y2;
+        if (digits.Length >= 4 && int.TryParse(digits[..4], out var y2)) return y2;
         return 0;
     }
 
     private string? ResolveGhostscript()
     {
         if (!string.IsNullOrWhiteSpace(gsPathCfg) &&
-            (gsPathCfg.Contains(Path.DirectorySeparatorChar) || gsPathCfg.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)))
+            (gsPathCfg.Contains(Path.DirectorySeparatorChar) ||
+             gsPathCfg.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)))
         {
             return File.Exists(gsPathCfg) ? gsPathCfg : null;
         }
-
         var names = new[] { gsPathCfg, "gs", "gswin64c.exe", "gswin32c.exe" };
         foreach (var n in names)
         {
