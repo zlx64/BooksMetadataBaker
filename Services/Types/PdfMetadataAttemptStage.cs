@@ -1,4 +1,4 @@
-namespace PrepKavitaPdf.Services;
+namespace PrepKavitaPdf.Services.Types;
 
 public enum PdfMetadataAttemptStage
 {

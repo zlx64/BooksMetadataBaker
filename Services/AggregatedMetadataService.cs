@@ -1,4 +1,6 @@
 using PrepKavitaPdf.Models;
+using PrepKavitaPdf.Services.Abstract;
+using PrepKavitaPdf.Services.Integration;
 
 namespace PrepKavitaPdf.Services;
 

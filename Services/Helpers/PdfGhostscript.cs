@@ -1,6 +1,6 @@
 using System.Diagnostics;
 
-namespace PrepKavitaPdf.Services;
+namespace PrepKavitaPdf.Services.Helpers;
 
 public static class PdfGhostscript
 {
@@ -64,8 +64,8 @@ public static class PdfGhostscript
         "-dDetectDuplicateImages=true",
         "-dCompressFonts=true",
         "-dPDFSETTINGS=/prepress",
-        $"-sOutputFile={PdfMetadataHelpers.Escape(output)}",
-        PdfMetadataHelpers.Escape(input)
+        $"-sOutputFile={MetadataHelpers.Escape(output)}",
+        MetadataHelpers.Escape(input)
     });
 
     private static void TryKill(Process p, ILogger logger)

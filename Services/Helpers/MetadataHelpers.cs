@@ -1,9 +1,9 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
 
-namespace PrepKavitaPdf.Services;
+namespace PrepKavitaPdf.Services.Helpers;
 
-public static class PdfMetadataHelpers
+public static class MetadataHelpers
 {
     public static (string WorkDir, string OutputPath) Prepare(string label)
     {
@@ -39,42 +39,40 @@ public static class PdfMetadataHelpers
     public static List<string> CollectAlternateTitles(IDictionary<string, string> meta, string mainTitle)
     {
         var list = new List<string>();
-        void Add(string key)
-        {
-            if (meta.TryGetValue(key, out var v) && !string.IsNullOrWhiteSpace(v) && !v.Equals(mainTitle, StringComparison.OrdinalIgnoreCase) && !list.Contains(v)) list.Add(v);
-        }
         Add("TitleEnglish");
         Add("TitleRomaji");
         Add("TitleNative");
         return list;
+
+        void Add(string key)
+        {
+            if (meta.TryGetValue(key, out var v) && !string.IsNullOrWhiteSpace(v) && !v.Equals(mainTitle, StringComparison.OrdinalIgnoreCase) && !list.Contains(v)) list.Add(v);
+        }
     }
 
     public static List<string> SplitAuthors(IDictionary<string, string> meta, string key)
     {
-        if (!meta.TryGetValue(key, out var raw) || string.IsNullOrWhiteSpace(raw)) return new List<string>();
+        if (!meta.TryGetValue(key, out var raw) || string.IsNullOrWhiteSpace(raw)) return [];
         return raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
     }
 
     public static List<string> GetGenres(IDictionary<string, string> meta)
     {
         var genres = new List<string>();
+        AddCsv("Genres");
+        AddCsv("Categories");
+        return genres.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
         void AddCsv(string key)
         {
             if (!meta.TryGetValue(key, out var v) || string.IsNullOrWhiteSpace(v)) return;
             genres.AddRange(v.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
         }
-        AddCsv("Genres");
-        AddCsv("Categories");
-        return genres.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
     }
 
     public static List<string> GetTags(IDictionary<string, string> meta)
     {
         var tags = new List<string>();
-        void Add(string key)
-        {
-            if (meta.TryGetValue(key, out var v) && !string.IsNullOrWhiteSpace(v)) tags.Add(v);
-        }
         Add("Format");
         Add("Status");
         Add("Source");
@@ -82,26 +80,32 @@ public static class PdfMetadataHelpers
         if (meta.TryGetValue("Genres", out var g)) tags.AddRange(g.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
         if (meta.TryGetValue("Categories", out var c)) tags.AddRange(c.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
         return tags.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+        void Add(string key)
+        {
+            if (meta.TryGetValue(key, out var v) && !string.IsNullOrWhiteSpace(v)) tags.Add(v);
+        }
     }
 
     public static int InferAgeRating(IDictionary<string, string> meta, IEnumerable<string> genres, IEnumerable<string> tags)
     {
         var tokens = new List<string>();
-        void Collect(string? v)
-        {
-            if (!string.IsNullOrWhiteSpace(v)) tokens.AddRange(v.Split(new[] { ' ', ',', ';', '.', '/', '\\', '|' }, StringSplitOptions.RemoveEmptyEntries));
-        }
         foreach (var g in genres) Collect(g);
         foreach (var t in tags) Collect(t);
         if (meta.TryGetValue("Description", out var desc)) Collect(desc);
         var lowered = tokens.Select(x => x.ToLowerInvariant()).ToList();
-        string[] adult = { "adult", "hentai", "mature", "18", "erotic", "nsfw", "porn", "smut" };
+        string[] adult = ["adult", "hentai", "mature", "18", "erotic", "nsfw", "porn", "smut"];
         if (lowered.Any(l => adult.Contains(l))) return 18;
-        string[] teenPlus = { "seinen", "violence", "gore", "horror", "dark" };
+        string[] teenPlus = ["seinen", "violence", "gore", "horror", "dark"];
         if (lowered.Any(l => teenPlus.Contains(l))) return 16;
-        string[] teen = { "shounen", "romance", "ya", "teen" };
+        string[] teen = ["shounen", "romance", "ya", "teen"];
         if (lowered.Any(l => teen.Contains(l))) return 13;
         return 0;
+
+        void Collect(string? v)
+        {
+            if (!string.IsNullOrWhiteSpace(v)) tokens.AddRange(v.Split([' ', ',', ';', '.', '/', '\\', '|'], StringSplitOptions.RemoveEmptyEntries));
+        }
     }
 
     public static int ExtractYear(IDictionary<string, string> meta)

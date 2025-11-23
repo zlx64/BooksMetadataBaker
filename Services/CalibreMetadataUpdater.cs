@@ -1,10 +1,10 @@
+using PrepKavitaPdf.Services.Helpers;
 using System.Diagnostics;
 using System.Globalization;
-using System.Text.RegularExpressions;
 
 namespace PrepKavitaPdf.Services;
 
-public static class PdfMetadataCalibre
+public static class CalibreMetadataUpdater
 {
     public static bool TryCleanPdfMetadata(string path, ILogger logger, out string? error)
     {
@@ -87,44 +87,45 @@ public static class PdfMetadataCalibre
 
     private static string BuildEbookMetaCleanArgs(string filePath)
     {
-        string Q(string v) => '"' + v.Replace("\"", "\\\"") + '"';
         var fields = new[] { "--title", "--authors", "--comments", "--tags", "--series", "--publisher", "--isbn", "--language" };
         var parts = new List<string>();
         foreach (var f in fields) parts.Add(f + " " + Q(string.Empty));
         parts.Add(Q(filePath));
         return string.Join(' ', parts);
+        static string Q(string v) => '"' + v.Replace("\"", "\\\"") + '"';
     }
 
     private static string BuildEbookMetaArgs(string filePath, IDictionary<string, string> meta, string fallbackTitle)
     {
-        string Q(string v) => '"' + v.Replace("\"", "\\\"") + '"';
         var parts = new List<string>();
-        var title = PdfMetadataHelpers.GetFirst(meta, fallbackTitle, "TitleEnglish", "TitleRomaji", "Title", "TitleNative");
+        //var title = MetadataHelpers.GetFirst(meta, fallbackTitle, "TitleEnglish", "TitleRomaji", "Title", "TitleNative");
         var newTitle = Path.GetFileNameWithoutExtension(filePath);
-        parts.Add("--title " + Q(newTitle ?? title));
-        parts.Add("--series " + Q(fallbackTitle));
-        var idx = PdfMetadataHelpers.ParseVolumeNumber(newTitle);
-        if (idx != null) parts.Add("--index " + Q(idx.Value.ToString(CultureInfo.InvariantCulture)));
-        var rating = PdfMetadataHelpers.GetFirst(meta, string.Empty, "AverageScore", "Rating", "UserRating");
-        if (!string.IsNullOrWhiteSpace(rating)) parts.Add("--rating " + Q(rating));
-        var desc = PdfMetadataHelpers.GetFirst(meta, string.Empty, "Description", "Snippet");
-        if (!string.IsNullOrWhiteSpace(desc)) parts.Add("--comments " + Q(desc));
-        var publisher = PdfMetadataHelpers.GetFirst(meta, string.Empty, "Publisher");
-        if (!string.IsNullOrWhiteSpace(publisher)) parts.Add("--publisher " + Q(publisher));
-        var dateRaw = PdfMetadataHelpers.GetFirst(meta, string.Empty, "PublishedDate", "StartDate", "StartYear");
-        var dateIso = PdfMetadataHelpers.NormDate(dateRaw);
-        if (!string.IsNullOrWhiteSpace(dateIso)) parts.Add("--date " + Q(dateIso));
-        var authorsRaw = PdfMetadataHelpers.GetFirst(meta, string.Empty, "Authors", "Author", "Writer");
+        parts.Add("--title " + Clean(newTitle));
+        parts.Add("--series " + Clean(fallbackTitle));
+        var idx = MetadataHelpers.ParseVolumeNumber(newTitle);
+        if (idx != null) parts.Add("--index " + Clean(idx.Value.ToString(CultureInfo.InvariantCulture)));
+        var rating = MetadataHelpers.GetFirst(meta, string.Empty, "AverageScore", "Rating", "UserRating");
+        if (!string.IsNullOrWhiteSpace(rating)) parts.Add("--rating " + Clean(rating));
+        var desc = MetadataHelpers.GetFirst(meta, string.Empty, "Description", "Snippet");
+        if (!string.IsNullOrWhiteSpace(desc)) parts.Add("--comments " + Clean(desc));
+        var publisher = MetadataHelpers.GetFirst(meta, string.Empty, "Publisher");
+        if (!string.IsNullOrWhiteSpace(publisher)) parts.Add("--publisher " + Clean(publisher));
+        var dateRaw = MetadataHelpers.GetFirst(meta, string.Empty, "PublishedDate", "StartDate", "StartYear");
+        var dateIso = MetadataHelpers.NormDate(dateRaw);
+        if (!string.IsNullOrWhiteSpace(dateIso)) parts.Add("--date " + Clean(dateIso));
+        var authorsRaw = MetadataHelpers.GetFirst(meta, string.Empty, "Authors", "Author", "Writer");
         if (!string.IsNullOrWhiteSpace(authorsRaw))
         {
-            var authors = authorsRaw.Split(new[] { ',', ';', '|', '&' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-            parts.Add("--authors " + Q(string.Join(" & ", authors)));
+            var authors = authorsRaw.Split([',', ';', '|', '&'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            parts.Add("--authors " + Clean(string.Join(" & ", authors)));
         }
-        var tagList = PdfMetadataHelpers.GetTags(meta);
-        if (tagList.Count > 0) parts.Add("--tags " + Q(string.Join(',', tagList)));
-        var lang = PdfMetadataHelpers.GetFirst(meta, string.Empty, "Language");
-        if (!string.IsNullOrWhiteSpace(lang)) parts.Add("--language " + Q(lang.Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? lang));
-        parts.Add(Q(filePath));
+        var tagList = MetadataHelpers.GetTags(meta);
+        if (tagList.Count > 0) parts.Add("--tags " + Clean(string.Join(',', tagList)));
+        var lang = MetadataHelpers.GetFirst(meta, string.Empty, "Language");
+        if (!string.IsNullOrWhiteSpace(lang)) parts.Add("--language " + Clean(lang.Split([',', ';', ' '], StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? lang));
+        parts.Add(Clean(filePath));
         return string.Join(' ', parts);
+
+        static string Clean(string v) => '"' + v.Replace("\"", "\\\"") + '"';
     }
 }

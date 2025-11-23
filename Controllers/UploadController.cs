@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using PrepKavitaPdf.Models;
-using PrepKavitaPdf.Services;
+using PrepKavitaPdf.Services.Abstract;
 
 namespace PrepKavitaPdf.Controllers;
 

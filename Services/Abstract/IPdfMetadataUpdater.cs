@@ -1,8 +1,6 @@
-using System.Collections.Generic;
-using System.Threading;
-using System.Threading.Tasks;
+using PrepKavitaPdf.Services.Types;
 
-namespace PrepKavitaPdf.Services;
+namespace PrepKavitaPdf.Services.Abstract;
 
 public interface IPdfMetadataUpdater
 {

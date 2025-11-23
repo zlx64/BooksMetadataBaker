@@ -1,6 +1,6 @@
 using PrepKavitaPdf.Models;
 
-namespace PrepKavitaPdf.Services;
+namespace PrepKavitaPdf.Services.Abstract;
 
 public interface IAggregatedMetadataService
 {

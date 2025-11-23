@@ -2,7 +2,7 @@ using System.Text.Json;
 using PrepKavitaPdf.Models;
 using System.Text.RegularExpressions;
 
-namespace PrepKavitaPdf.Services;
+namespace PrepKavitaPdf.Services.Integration;
 
 public class GoogleBooksService(
     HttpClient http,

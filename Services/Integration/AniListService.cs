@@ -2,19 +2,10 @@ using System.Text.Json;
 using PrepKavitaPdf.Models;
 using System.Text.RegularExpressions;
 
-namespace PrepKavitaPdf.Services;
+namespace PrepKavitaPdf.Services.Integration;
 
-public class AniListService
+public class AniListService(HttpClient http, ILogger<AniListService> logger)
 {
-    private readonly HttpClient http;
-    private readonly ILogger<AniListService> logger;
-
-    public AniListService(HttpClient http, ILogger<AniListService> logger)
-    {
-        this.http = http;
-        this.logger = logger;
-    }
-
     public async Task<Dictionary<string, string>> TryFetchAsync(string title, BookType type, CancellationToken ct)
     {
         // Only attempt for Manga or LightNovel

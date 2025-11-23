@@ -1,8 +1,11 @@
 using System.Text.Json;
-using static PrepKavitaPdf.Services.PdfGhostscript;
-using static PrepKavitaPdf.Services.PdfMetadataCalibre;
-using static PrepKavitaPdf.Services.PdfMetadataHelpers;
-using static PrepKavitaPdf.Services.PdfSidecarWriter;
+using PrepKavitaPdf.Services.Abstract;
+using PrepKavitaPdf.Services.Helpers;
+using PrepKavitaPdf.Services.Types;
+using static PrepKavitaPdf.Services.Helpers.PdfGhostscript;
+using static PrepKavitaPdf.Services.CalibreMetadataUpdater;
+using static PrepKavitaPdf.Services.Helpers.MetadataHelpers;
+using static PrepKavitaPdf.Services.Helpers.PdfSidecarWriter;
 
 namespace PrepKavitaPdf.Services;
 
@@ -96,7 +99,7 @@ public class PdfMetadataUpdater : IPdfMetadataUpdater
 
         string? errors = null;
         var gsRan = false;
-        var (workDir, outputPath) = PdfMetadataTemp.Prepare("repair");
+        var (workDir, outputPath) = MetadataTemp.Prepare("repair", ".pdf");
 
         try
         {
@@ -135,7 +138,7 @@ public class PdfMetadataUpdater : IPdfMetadataUpdater
         }
         finally
         {
-            PdfMetadataTemp.Cleanup(workDir);
+            MetadataTemp.Cleanup(workDir);
         }
 
         return Task.FromResult(new RepairAttemptResult(false, errors, gsRan));

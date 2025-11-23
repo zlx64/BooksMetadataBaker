@@ -1,29 +1,17 @@
-using Microsoft.AspNetCore.Http;
 using PrepKavitaPdf.Models;
 using System.Text.RegularExpressions;
 using System.Globalization;
+using PrepKavitaPdf.Services.Abstract;
+using PrepKavitaPdf.Services.Types;
 
 namespace PrepKavitaPdf.Services;
 
-public class UploadProcessingService : IUploadProcessingService
+public class UploadProcessingService(
+    IConfiguration config,
+    IAggregatedMetadataService metadataService,
+    IPdfMetadataUpdater metadataUpdater,
+    ILogger<UploadProcessingService> logger) : IUploadProcessingService
 {
-    private readonly IConfiguration config;
-    private readonly IAggregatedMetadataService metadataService;
-    private readonly IPdfMetadataUpdater metadataUpdater;
-    private readonly ILogger<UploadProcessingService> logger;
-
-    public UploadProcessingService(
-        IConfiguration config,
-        IAggregatedMetadataService metadataService,
-        IPdfMetadataUpdater metadataUpdater,
-        ILogger<UploadProcessingService> logger)
-    {
-        this.config = config;
-        this.metadataService = metadataService;
-        this.metadataUpdater = metadataUpdater;
-        this.logger = logger;
-    }
-
     public async Task<(PdfUploadProcessResult Result, IDictionary<string,string> Metadata, bool Cancelled, string? Error)> ProcessSingleAsync(UploadRequest info, IFormFile file, CancellationToken ct)
     {
         var root = config["PdfLibrary:RootFolder"];
@@ -60,11 +48,11 @@ public class UploadProcessingService : IUploadProcessingService
         var savePath = GetUniquePdfPath(titleFolder, info.Title, file.FileName); // now overwrites if exists
         try
         {
-            if (System.IO.File.Exists(savePath))
+            if (File.Exists(savePath))
             {
                 logger.LogInformation("Overwriting existing file {Path}", savePath);
             }
-            await using var fs = System.IO.File.Create(savePath); // truncates existing file
+            await using var fs = File.Create(savePath); // truncates existing file
             await file.CopyToAsync(fs, ct);
         }
         catch (Exception ex)
@@ -146,8 +134,8 @@ public class UploadProcessingService : IUploadProcessingService
         try
         {
             var testFile = Path.Combine(path, ".perm_test_" + Guid.NewGuid().ToString("N"));
-            System.IO.File.WriteAllText(testFile, "test");
-            System.IO.File.Delete(testFile);
+            File.WriteAllText(testFile, "test");
+            File.Delete(testFile);
             return true;
         }
         catch

@@ -1,4 +1,6 @@
 using PrepKavitaPdf.Services;
+using PrepKavitaPdf.Services.Abstract;
+using PrepKavitaPdf.Services.Integration;
 using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);

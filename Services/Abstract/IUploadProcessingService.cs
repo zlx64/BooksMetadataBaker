@@ -1,9 +1,6 @@
-using Microsoft.AspNetCore.Http;
 using PrepKavitaPdf.Models;
-using System.Threading;
-using System.Threading.Tasks;
 
-namespace PrepKavitaPdf.Services;
+namespace PrepKavitaPdf.Services.Abstract;
 
 public interface IUploadProcessingService
 {

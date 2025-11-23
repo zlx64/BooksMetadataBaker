@@ -1,9 +1,8 @@
 using System.Text.Json;
 using PrepKavitaPdf.Models;
-using Microsoft.Extensions.Caching.Memory;
 using System.Text.RegularExpressions;
 
-namespace PrepKavitaPdf.Services;
+namespace PrepKavitaPdf.Services.Integration;
 
 public class ComicVineService(
     HttpClient http,

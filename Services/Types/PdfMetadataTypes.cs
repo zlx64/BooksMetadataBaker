@@ -1,6 +1,4 @@
-using System.Collections.Generic;
-
-namespace PrepKavitaPdf.Services;
+namespace PrepKavitaPdf.Services.Types;
 
 public sealed record PdfMetadataAttemptResult(
     string FilePath,

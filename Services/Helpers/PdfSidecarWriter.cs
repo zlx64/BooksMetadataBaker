@@ -1,6 +1,7 @@
+using PrepKavitaPdf.Services.Types;
 using System.Text.Json;
 
-namespace PrepKavitaPdf.Services;
+namespace PrepKavitaPdf.Services.Helpers;
 
 public static class PdfSidecarWriter
 {
@@ -11,7 +12,7 @@ public static class PdfSidecarWriter
             var sidecar = summary.FilePath + ".meta.json";
             var obj = new Dictionary<string, object?>
             {
-                ["AppliedTitle"] = PdfMetadataHelpers.GetFirst(summary.Metadata, summary.FallbackTitle, "Title", "TitleEnglish", "TitleRomaji", "TitleNative"),
+                ["AppliedTitle"] = MetadataHelpers.GetFirst(summary.Metadata, summary.FallbackTitle, "Title", "TitleEnglish", "TitleRomaji", "TitleNative"),
                 ["Success"] = summary.Success,
                 ["MetadataApplied"] = summary.MetadataApplied,
                 ["GhostscriptRan"] = summary.GhostscriptRan,
