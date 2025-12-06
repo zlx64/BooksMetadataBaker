@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>PrepKavita PDF Upload</title>
+    <title>PrepKavita eBook Upload</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Merriweather:wght@400;700&display=swap" rel="stylesheet">
@@ -12,7 +12,7 @@
 <body>
     <div id="app" class="wrapper" v-cloak>
         <section class="section" id="upload">
-            <h2>Upload PDFs</h2>
+            <h2>Upload eBooks (PDF & EPUB)</h2>
             <form @submit.prevent="submit" @reset="reset">
                 <div class="grid">
                     <div class="box">
@@ -31,8 +31,8 @@
                         </div>
                     </div>
                     <div class="box">
-                        <label for="files">PDF Files</label>
-                        <input id="files" ref="filesInput" @change="onFiles" type="file" accept="application/pdf" multiple required />
+                        <label for="files">eBook Files (PDF or EPUB)</label>
+                        <input id="files" ref="filesInput" @change="onFiles" type="file" accept="application/pdf,.pdf,application/epub+zip,.epub" multiple required />
                         <div id="fileList">
                             <transition-group name="fade" tag="div">
                                 <div class="file-item" v-for="f in pendingFiles" :key="f.name" :class="{'error-item': f.status==='error'}">
@@ -59,7 +59,7 @@
                                 </div>
                             </transition-group>
                         </div>
-                        <small>Uploads are processed one by one (up to 4 simultaneously). Progress completes only after metadata attempts finish.</small>
+                        <small>Uploads are processed one by one (up to 4 simultaneously). Progress completes only after metadata attempts finish. Supports PDF and EPUB files.</small>
                     </div>
                 </div>
             </form>
@@ -76,7 +76,7 @@
                 </div>
             </transition>
         </section>
-        <footer>&copy; {{ year }} PrepKavita PDF Utility</footer>
+        <footer>&copy; {{ year }} PrepKavita eBook Utility</footer>
     </div>
     <script src="https://unpkg.com/vue@3.4.21/dist/vue.global.prod.js"></script>
     <script src="/js/app.js"></script>

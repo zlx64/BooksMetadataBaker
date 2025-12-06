@@ -2,23 +2,24 @@ using System.Text.Json;
 using PrepKavitaPdf.Services.Abstract;
 using PrepKavitaPdf.Services.Helpers;
 using PrepKavitaPdf.Services.Types;
+using PrepKavitaPdf.Models;
 using static PrepKavitaPdf.Services.Helpers.PdfGhostscript;
 using static PrepKavitaPdf.Services.CalibreMetadataUpdater;
 using static PrepKavitaPdf.Services.Helpers.MetadataHelpers;
-using static PrepKavitaPdf.Services.Helpers.PdfSidecarWriter;
+using static PrepKavitaPdf.Services.Helpers.EBookSidecarWriter;
 
 namespace PrepKavitaPdf.Services;
 
-public class PdfMetadataUpdater : IPdfMetadataUpdater
+public class EBookMetadataUpdater : IEBookMetadataUpdater
 {
     private const int GhostscriptTimeoutMs = 120_000;
 
     private readonly bool sidecarEnabled;
     private readonly bool gsEnabled;
     private readonly string gsPathCfg;
-    private readonly ILogger<PdfMetadataUpdater> logger;
+    private readonly ILogger<EBookMetadataUpdater> logger;
 
-    public PdfMetadataUpdater(IConfiguration config, ILogger<PdfMetadataUpdater> logger)
+    public EBookMetadataUpdater(IConfiguration config, ILogger<EBookMetadataUpdater> logger)
     {
         sidecarEnabled = !bool.TryParse(config["Tools:SidecarMetadataEnabled"], out var sc) || sc;
         gsEnabled = !bool.TryParse(config["Tools:GhostscriptEnabled"], out var gse) || gse;
@@ -26,25 +27,26 @@ public class PdfMetadataUpdater : IPdfMetadataUpdater
         this.logger = logger;
 
         logger.LogInformation(
-            "PdfMetadataUpdater initialized. SidecarEnabled={SidecarEnabled}, GhostscriptEnabled={GhostscriptEnabled}, GhostscriptPathSetting={GhostscriptPath} (ebook-meta primary)",
+            "EBookMetadataUpdater initialized. SidecarEnabled={SidecarEnabled}, GhostscriptEnabled={GhostscriptEnabled}, GhostscriptPathSetting={GhostscriptPath} (ebook-meta primary)",
             sidecarEnabled,
             gsEnabled,
             gsPathCfg);
     }
 
-    public async Task<IReadOnlyList<PdfMetadataAttemptResult>> RunPipelineAsync(
+    public async Task<IReadOnlyList<EBookMetadataAttemptResult>> RunPipelineAsync(
         string filePath,
         IDictionary<string, string> metadata,
         string fallbackTitle,
         CancellationToken ct)
     {
-        var attempts = new List<PdfMetadataAttemptResult>(2);
+        var attempts = new List<EBookMetadataAttemptResult>(2);
         var request = new MetadataRequest(filePath, metadata, fallbackTitle);
+        var format = DetectFormat(filePath);
 
         var direct = await DirectAttemptAsync(request, ct);
-        attempts.Add(new PdfMetadataAttemptResult(
+        attempts.Add(new EBookMetadataAttemptResult(
             filePath,
-            PdfMetadataAttemptStage.Direct,
+            EBookMetadataAttemptStage.Direct,
             direct.Success,
             direct.ErrorMessage,
             false,
@@ -53,20 +55,22 @@ public class PdfMetadataUpdater : IPdfMetadataUpdater
         if (ct.IsCancellationRequested || direct.Success)
             return attempts;
 
-        if (!gsEnabled)
+        // Ghostscript repair is PDF-specific
+        if (format == EBookFormat.Pdf && gsEnabled)
         {
-            logger.LogWarning("Skipping repair attempt for {File}: Ghostscript disabled", filePath);
-            return attempts;
+            var repair = await RepairAttemptAsync(request, ct);
+            attempts.Add(new EBookMetadataAttemptResult(
+                filePath,
+                EBookMetadataAttemptStage.Repair,
+                repair.Success,
+                repair.ErrorMessage,
+                repair.GhostscriptRan,
+                repair.Success));
         }
-
-        var repair = await RepairAttemptAsync(request, ct);
-        attempts.Add(new PdfMetadataAttemptResult(
-            filePath,
-            PdfMetadataAttemptStage.Repair,
-            repair.Success,
-            repair.ErrorMessage,
-            repair.GhostscriptRan,
-            repair.Success));
+        else if (format == EBookFormat.Pdf && !gsEnabled)
+        {
+            logger.LogWarning("Skipping PDF repair attempt for {File}: Ghostscript disabled", filePath);
+        }
 
         return attempts;
     }
@@ -76,7 +80,7 @@ public class PdfMetadataUpdater : IPdfMetadataUpdater
         if (ct.IsCancellationRequested)
             return Task.FromResult(new DirectAttemptResult(false, "Cancelled"));
 
-        if (!TryCleanPdfMetadata(request.FilePath, logger, out var cleanErr))
+        if (!TryCleanEBookMetadata(request.FilePath, logger, out var cleanErr))
         {
             logger.LogWarning("Initial metadata cleanup failed for {File}: {Error}", request.FilePath, cleanErr);
             return Task.FromResult(new DirectAttemptResult(false, cleanErr ?? "Cleanup failed"));
@@ -99,7 +103,8 @@ public class PdfMetadataUpdater : IPdfMetadataUpdater
 
         string? errors = null;
         var gsRan = false;
-        var (workDir, outputPath) = MetadataTemp.Prepare("repair", ".pdf");
+        var extension = Path.GetExtension(request.FilePath);
+        var (workDir, outputPath) = MetadataTemp.Prepare("repair", extension);
 
         try
         {
@@ -116,7 +121,7 @@ public class PdfMetadataUpdater : IPdfMetadataUpdater
             if (ct.IsCancellationRequested)
                 return Task.FromResult(new RepairAttemptResult(false, "Cancelled", gsRan));
 
-            if (!TryCleanPdfMetadata(outputPath, logger, out var cleanErr))
+            if (!TryCleanEBookMetadata(outputPath, logger, out var cleanErr))
             {
                 errors = Combine(errors, cleanErr);
                 logger.LogWarning("Repair path cleanup failed for {File}: {Error}", request.FilePath, cleanErr);
@@ -211,5 +216,16 @@ public class PdfMetadataUpdater : IPdfMetadataUpdater
         {
             logger.LogWarning(ex, "Failed writing Kavita series metadata for {File}", filePath);
         }
+    }
+
+    private static EBookFormat DetectFormat(string filePath)
+    {
+        var ext = Path.GetExtension(filePath).ToLowerInvariant();
+        return ext switch
+        {
+            ".epub" => EBookFormat.Epub,
+            ".pdf" => EBookFormat.Pdf,
+            _ => EBookFormat.Pdf // default
+        };
     }
 }

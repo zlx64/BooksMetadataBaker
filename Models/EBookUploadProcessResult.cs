@@ -1,6 +1,6 @@
 namespace PrepKavitaPdf.Models;
 
-public sealed record PdfUploadProcessResult(
+public sealed record EBookUploadProcessResult(
     string File,
     bool Success,
     string? ErrorMessage,
@@ -9,4 +9,5 @@ public sealed record PdfUploadProcessResult(
     bool DirectAttemptSuccess,
     bool RepairAttemptSuccess,
     bool ForceStripAttemptSuccess,
-    bool GhostscriptRan);
+    bool GhostscriptRan,
+    EBookFormat Format);

@@ -9,13 +9,14 @@ namespace PrepKavitaPdf.Services;
 public class UploadProcessingService(
     IConfiguration config,
     IAggregatedMetadataService metadataService,
-    IPdfMetadataUpdater metadataUpdater,
+    IEBookMetadataUpdater metadataUpdater,
     ILogger<UploadProcessingService> logger) : IUploadProcessingService
 {
-    public async Task<(PdfUploadProcessResult Result, IDictionary<string,string> Metadata, bool Cancelled, string? Error)> ProcessSingleAsync(UploadRequest info, IFormFile file, CancellationToken ct)
+    public async Task<(EBookUploadProcessResult Result, IDictionary<string,string> Metadata, bool Cancelled, string? Error)> ProcessSingleAsync(UploadRequest info, IFormFile file, CancellationToken ct)
     {
         var root = config["PdfLibrary:RootFolder"];
-        if (string.IsNullOrWhiteSpace(root)) return (new PdfUploadProcessResult("", false, "Root folder not configured", 0, new Dictionary<string,string>(), false, false, false, false), new Dictionary<string,string>(), false, "Root folder not configured");
+        if (string.IsNullOrWhiteSpace(root)) 
+            return (CreateErrorResult("", "Root folder not configured", EBookFormat.Pdf, new Dictionary<string,string>()), new Dictionary<string,string>(), false, "Root folder not configured");
 
         var typeFolderSection = config.GetSection("PdfLibrary:TypeFolders");
         var typeFolder = info.Type switch
@@ -28,6 +29,7 @@ public class UploadProcessingService(
         };
 
         var titleFolder = Path.Combine(root, Sanitize(typeFolder), Sanitize(info.Title));
+        var format = DetectFormat(file.FileName);
 
         try
         {
@@ -36,52 +38,50 @@ public class UploadProcessingService(
         catch (Exception ex)
         {
             logger.LogError(ex, "Failed to create directory {Dir}", titleFolder);
-            return (new PdfUploadProcessResult("", false, $"Create directory failed: {ex.GetType().Name}: {ex.Message}", 0, new Dictionary<string,string>(), false, false, false, false), new Dictionary<string,string>(), false, ex.Message);
+            return (CreateErrorResult("", $"Create directory failed: {ex.GetType().Name}: {ex.Message}", format, new Dictionary<string,string>()), new Dictionary<string,string>(), false, ex.Message);
         }
 
         if (!IsWritableDirectory(titleFolder))
         {
             logger.LogError("Directory not writable: {Dir}", titleFolder);
-            return (new PdfUploadProcessResult("", false, $"Directory not writable: {titleFolder}", 0, new Dictionary<string,string>(), false, false, false, false), new Dictionary<string,string>(), false, $"Directory not writable: {titleFolder}");
+            return (CreateErrorResult("", $"Directory not writable: {titleFolder}", format, new Dictionary<string,string>()), new Dictionary<string,string>(), false, $"Directory not writable: {titleFolder}");
         }
 
-        var savePath = GetUniquePdfPath(titleFolder, info.Title, file.FileName); // now overwrites if exists
+        var savePath = GetUniqueEBookPath(titleFolder, info.Title, file.FileName);
         try
         {
             if (File.Exists(savePath))
             {
                 logger.LogInformation("Overwriting existing file {Path}", savePath);
             }
-            await using var fs = File.Create(savePath); // truncates existing file
+            await using var fs = File.Create(savePath);
             await file.CopyToAsync(fs, ct);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Failed writing uploaded file to {Path}", savePath);
-            return (new PdfUploadProcessResult(Path.GetFileName(savePath), false, $"Save file failed: {ex.GetType().Name}: {ex.Message}", 0, new Dictionary<string,string>(), false, false, false, false), new Dictionary<string,string>(), false, ex.Message);
+            return (CreateErrorResult(Path.GetFileName(savePath), $"Save file failed: {ex.GetType().Name}: {ex.Message}", format, new Dictionary<string,string>()), new Dictionary<string,string>(), false, ex.Message);
         }
 
-        // Extract volume token from incoming file name if present
         var baseName = Path.GetFileNameWithoutExtension(file.FileName);
         var volMatch = Regex.Match(baseName, @"(\b|_)(?:v|vol|volume)[ _-]?(\d+(?:\.\d+)?)", RegexOptions.IgnoreCase);
         if (!volMatch.Success)
         {
-            // fallback simple number match at end or anywhere
             var numMatch = Regex.Match(baseName, @"\b(\d{1,3}(?:\.\d+)?)\b");
             volMatch = numMatch;
         }
         var volumeToken = volMatch.Success ? volMatch.Groups[2].Value : null;
         var meta = await metadataService.FetchMetadataAsync(info.Title, info.Type, volumeToken, ct);
         if (ct.IsCancellationRequested)
-            return (new PdfUploadProcessResult(Path.GetFileName(savePath), false, "Cancelled", 0, meta, false, false, false, false), meta, true, null);
+            return (CreateCancelledResult(Path.GetFileName(savePath), format, meta), meta, true, null);
 
-        PdfUploadProcessResult result;
+        EBookUploadProcessResult result;
         try
         {
             var attempts = await metadataUpdater.RunPipelineAsync(savePath, meta, info.Title, ct);
             var success = attempts.Any(a => a.Success);
-            var directOk = attempts.Any(a => a.Stage == PdfMetadataAttemptStage.Direct && a.Success);
-            var repairOk = attempts.Any(a => a.Stage == PdfMetadataAttemptStage.Repair && a.Success);
+            var directOk = attempts.Any(a => a.Stage == EBookMetadataAttemptStage.Direct && a.Success);
+            var repairOk = attempts.Any(a => a.Stage == EBookMetadataAttemptStage.Repair && a.Success);
             var ghostscriptRan = attempts.Any(a => a.GhostscriptRan);
             var errorMessage = CombineErrors(attempts);
             metadataUpdater.WriteSidecarSummary(savePath, meta, info.Title, success, errorMessage, success, ghostscriptRan);
@@ -95,39 +95,40 @@ public class UploadProcessingService(
                 DirectAttemptSuccess: directOk,
                 RepairAttemptSuccess: repairOk,
                 ForceStripAttemptSuccess: false,
-                GhostscriptRan: ghostscriptRan);
-            if (!success && !string.IsNullOrWhiteSpace(errorMessage)) logger.LogWarning("Metadata update failed for {File}: {Errors}", savePath, errorMessage);
+                GhostscriptRan: ghostscriptRan,
+                Format: format);
+            if (!success && !string.IsNullOrWhiteSpace(errorMessage)) 
+                logger.LogWarning("Metadata update failed for {File}: {Errors}", savePath, errorMessage);
         }
         catch (OperationCanceledException)
         {
-            result = new(
-                File: Path.GetFileName(savePath),
-                Success: false,
-                ErrorMessage: "Cancelled",
-                Attempts: 0,
-                AppliedMetadata: meta,
-                DirectAttemptSuccess: false,
-                RepairAttemptSuccess: false,
-                ForceStripAttemptSuccess: false,
-                GhostscriptRan: false);
+            result = CreateCancelledResult(Path.GetFileName(savePath), format, meta);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Failed updating metadata for {File}", savePath);
-            result = new(
-                File: Path.GetFileName(savePath),
-                Success: false,
-                ErrorMessage: ex.Message,
-                Attempts: 0,
-                AppliedMetadata: meta,
-                DirectAttemptSuccess: false,
-                RepairAttemptSuccess: false,
-                ForceStripAttemptSuccess: false,
-                GhostscriptRan: false);
+            result = CreateErrorResult(Path.GetFileName(savePath), ex.Message, format, meta);
         }
 
         return (result, meta, ct.IsCancellationRequested, null);
     }
+
+    private static EBookFormat DetectFormat(string fileName)
+    {
+        var ext = Path.GetExtension(fileName).ToLowerInvariant();
+        return ext switch
+        {
+            ".epub" => EBookFormat.Epub,
+            ".pdf" => EBookFormat.Pdf,
+            _ => EBookFormat.Pdf
+        };
+    }
+
+    private static EBookUploadProcessResult CreateErrorResult(string fileName, string errorMessage, EBookFormat format, IDictionary<string, string> meta) =>
+        new(fileName, false, errorMessage, 0, meta, false, false, false, false, format);
+
+    private static EBookUploadProcessResult CreateCancelledResult(string fileName, EBookFormat format, IDictionary<string, string> meta) =>
+        new(fileName, false, "Cancelled", 0, meta, false, false, false, false, format);
 
     private static bool IsWritableDirectory(string path)
     {
@@ -144,31 +145,34 @@ public class UploadProcessingService(
         }
     }
 
-    private static string GetUniquePdfPath(string folder, string title, string originalFileName)
+    private static string GetUniqueEBookPath(string folder, string title, string originalFileName)
     {
-        // Now returns deterministic name and overwrites if exists.
         var baseName = Path.GetFileNameWithoutExtension(originalFileName);
+        var extension = Path.GetExtension(originalFileName);
         var match = Regex.Match(baseName, @"\d+(?:\.\d+)?");
         var newBaseName = match.Success ? BuildVolumeName(title, match.Value) : title;
-        var sanitized = Sanitize(newBaseName) + ".pdf";
+        var sanitized = Sanitize(newBaseName) + extension;
         var path = Path.Combine(folder, sanitized);
         return path;
     }
 
     private static string BuildVolumeName(string title, string numStr)
     {
-        if (numStr.Contains('.') && decimal.TryParse(numStr, out var dec)) numStr = dec.ToString(CultureInfo.InvariantCulture);
-        else if (int.TryParse(numStr, out var num)) numStr = num.ToString();
+        if (numStr.Contains('.') && decimal.TryParse(numStr, out var dec)) 
+            numStr = dec.ToString(CultureInfo.InvariantCulture);
+        else if (int.TryParse(numStr, out var num)) 
+            numStr = num.ToString();
         return $"{title} - Volume {numStr}";
     }
 
     private static string Sanitize(string name)
     {
-        foreach (var c in Path.GetInvalidFileNameChars()) name = name.Replace(c, '_');
+        foreach (var c in Path.GetInvalidFileNameChars()) 
+            name = name.Replace(c, '_');
         return name;
     }
 
-    private static string CombineErrors(IEnumerable<PdfMetadataAttemptResult> attempts)
+    private static string CombineErrors(IEnumerable<EBookMetadataAttemptResult> attempts)
     {
         var parts = attempts.Where(a => !a.Success && !string.IsNullOrWhiteSpace(a.ErrorMessage))
                              .Select(a => $"{a.Stage}: {a.ErrorMessage}").ToList();

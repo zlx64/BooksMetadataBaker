@@ -1,4 +1,4 @@
-// PrepKavita PDF Upload UI Logic (Updated for per-file processing uploads)
+// PrepKavita eBook Upload UI Logic (Updated for per-file processing uploads - PDF and EPUB support)
 // ---------------------------------------------------------------------
 // Responsibilities:
 // - Manage form state (title, type, selected files)
@@ -41,7 +41,9 @@
         pendingFiles.splice(0);
         const files = Array.from(filesInput.value?.files || []);
         for(const f of files){
-          if(!f.name.toLowerCase().endsWith('.pdf')) continue;
+          const name = f.name.toLowerCase();
+          // Accept both PDF and EPUB files
+          if(!name.endsWith('.pdf') && !name.endsWith('.epub')) continue;
           pendingFiles.push({
             file: f,
             name: f.name,

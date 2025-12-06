@@ -6,7 +6,7 @@ namespace PrepKavitaPdf.Services;
 
 public static class CalibreMetadataUpdater
 {
-    public static bool TryCleanPdfMetadata(string path, ILogger logger, out string? error)
+    public static bool TryCleanEBookMetadata(string path, ILogger logger, out string? error)
     {
         error = null;
         try
@@ -98,7 +98,6 @@ public static class CalibreMetadataUpdater
     private static string BuildEbookMetaArgs(string filePath, IDictionary<string, string> meta, string fallbackTitle)
     {
         var parts = new List<string>();
-        //var title = MetadataHelpers.GetFirst(meta, fallbackTitle, "TitleEnglish", "TitleRomaji", "Title", "TitleNative");
         var newTitle = Path.GetFileNameWithoutExtension(filePath);
         parts.Add("--title " + Clean(newTitle));
         parts.Add("--series " + Clean(fallbackTitle));

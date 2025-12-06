@@ -9,6 +9,7 @@ namespace PrepKavitaPdf.Controllers;
 public class UploadController(IUploadProcessingService processor) : ControllerBase
 {
     private const int MaxFileSize = 524288000; // 500MB
+    private static readonly string[] AllowedExtensions = { ".pdf", ".epub" };
 
     [HttpPost]
     [RequestSizeLimit(MaxFileSize)]
@@ -18,10 +19,11 @@ public class UploadController(IUploadProcessingService processor) : ControllerBa
             return BadRequest("Title required");
 
         if (file is null) 
-            return BadRequest("PDF file required");
+            return BadRequest("eBook file required (PDF or EPUB)");
 
-        if (!file.FileName.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase)) 
-            return BadRequest("File must be a PDF");
+        var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
+        if (!AllowedExtensions.Contains(extension))
+            return BadRequest("File must be a PDF or EPUB");
 
         var (result, metadata, cancelled, error) = await processor.ProcessSingleAsync(info, file, ct);
         if (error != null && string.IsNullOrWhiteSpace(result.File))

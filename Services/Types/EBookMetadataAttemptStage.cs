@@ -1,6 +1,6 @@
 namespace PrepKavitaPdf.Services.Types;
 
-public enum PdfMetadataAttemptStage
+public enum EBookMetadataAttemptStage
 {
     Direct,
     Repair

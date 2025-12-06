@@ -41,7 +41,7 @@ builder.Services.AddHttpClient<ComicVineService>(c =>
 });
 
 builder.Services.AddScoped<IAggregatedMetadataService, AggregatedMetadataService>();
-builder.Services.AddSingleton<IPdfMetadataUpdater, PdfMetadataUpdater>();
+builder.Services.AddSingleton<IEBookMetadataUpdater, EBookMetadataUpdater>();
 // Upload processing service
 builder.Services.AddScoped<IUploadProcessingService, UploadProcessingService>();
 
@@ -66,7 +66,7 @@ app.MapGet("/", () => Results.Redirect("/index.html"));
 
 try
 {
-    Log.Information("Starting PrepKavitaPdf web application");
+    Log.Information("Starting PrepKavitaPdf web application - now supports PDF and EPUB files");
     app.Run();
 }
 catch (Exception ex)

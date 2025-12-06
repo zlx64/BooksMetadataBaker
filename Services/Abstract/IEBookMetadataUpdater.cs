@@ -2,9 +2,9 @@ using PrepKavitaPdf.Services.Types;
 
 namespace PrepKavitaPdf.Services.Abstract;
 
-public interface IPdfMetadataUpdater
+public interface IEBookMetadataUpdater
 {
-    Task<IReadOnlyList<PdfMetadataAttemptResult>> RunPipelineAsync(
+    Task<IReadOnlyList<EBookMetadataAttemptResult>> RunPipelineAsync(
         string filePath,
         IDictionary<string, string> metadata,
         string fallbackTitle,

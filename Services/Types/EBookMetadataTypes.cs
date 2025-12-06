@@ -1,8 +1,8 @@
 namespace PrepKavitaPdf.Services.Types;
 
-public sealed record PdfMetadataAttemptResult(
+public sealed record EBookMetadataAttemptResult(
     string FilePath,
-    PdfMetadataAttemptStage Stage,
+    EBookMetadataAttemptStage Stage,
     bool Success,
     string? ErrorMessage,
     bool GhostscriptRan,

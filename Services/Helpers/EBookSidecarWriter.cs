@@ -3,7 +3,7 @@ using System.Text.Json;
 
 namespace PrepKavitaPdf.Services.Helpers;
 
-public static class PdfSidecarWriter
+public static class EBookSidecarWriter
 {
     public static void Write(SidecarSummary summary, ILogger logger)
     {
