@@ -1,10 +1,10 @@
-using PrepKavitaPdf.Models;
-using System.Text.RegularExpressions;
 using System.Globalization;
-using PrepKavitaPdf.Services.Abstract;
-using PrepKavitaPdf.Services.Types;
+using System.Text.RegularExpressions;
+using BooksMetadataBaker.Models;
+using BooksMetadataBaker.Services.Abstract;
+using BooksMetadataBaker.Services.Types;
 
-namespace PrepKavitaPdf.Services;
+namespace BooksMetadataBaker.Services;
 
 public class UploadProcessingService(
     IConfiguration config,
@@ -80,8 +80,8 @@ public class UploadProcessingService(
         {
             var attempts = await metadataUpdater.RunPipelineAsync(savePath, meta, info.Title, ct);
             var success = attempts.Any(a => a.Success);
-            var directOk = attempts.Any(a => a.Stage == EBookMetadataAttemptStage.Direct && a.Success);
-            var repairOk = attempts.Any(a => a.Stage == EBookMetadataAttemptStage.Repair && a.Success);
+            var directOk = attempts.Any(a => a is { Stage: EBookMetadataAttemptStage.Direct, Success: true });
+            var repairOk = attempts.Any(a => a is { Stage: EBookMetadataAttemptStage.Repair, Success: true });
             var ghostscriptRan = attempts.Any(a => a.GhostscriptRan);
             var errorMessage = CombineErrors(attempts);
             metadataUpdater.WriteSidecarSummary(savePath, meta, info.Title, success, errorMessage, success, ghostscriptRan);

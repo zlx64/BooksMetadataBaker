@@ -1,6 +1,6 @@
 using System.Diagnostics;
 
-namespace PrepKavitaPdf.Services.Helpers;
+namespace BooksMetadataBaker.Services.Helpers;
 
 public static class PdfGhostscript
 {

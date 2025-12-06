@@ -1,8 +1,8 @@
-using PrepKavitaPdf.Services.Helpers;
 using System.Diagnostics;
 using System.Globalization;
+using BooksMetadataBaker.Services.Helpers;
 
-namespace PrepKavitaPdf.Services;
+namespace BooksMetadataBaker.Services;
 
 public static class CalibreMetadataUpdater
 {

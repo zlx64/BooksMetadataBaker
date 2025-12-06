@@ -1,14 +1,14 @@
 using System.Text.Json;
-using PrepKavitaPdf.Services.Abstract;
-using PrepKavitaPdf.Services.Helpers;
-using PrepKavitaPdf.Services.Types;
-using PrepKavitaPdf.Models;
-using static PrepKavitaPdf.Services.Helpers.PdfGhostscript;
-using static PrepKavitaPdf.Services.CalibreMetadataUpdater;
-using static PrepKavitaPdf.Services.Helpers.MetadataHelpers;
-using static PrepKavitaPdf.Services.Helpers.EBookSidecarWriter;
+using BooksMetadataBaker.Models;
+using BooksMetadataBaker.Services.Abstract;
+using BooksMetadataBaker.Services.Helpers;
+using BooksMetadataBaker.Services.Types;
+using static BooksMetadataBaker.Services.Helpers.PdfGhostscript;
+using static BooksMetadataBaker.Services.CalibreMetadataUpdater;
+using static BooksMetadataBaker.Services.Helpers.MetadataHelpers;
+using static BooksMetadataBaker.Services.Helpers.EBookSidecarWriter;
 
-namespace PrepKavitaPdf.Services;
+namespace BooksMetadataBaker.Services;
 
 public class EBookMetadataUpdater : IEBookMetadataUpdater
 {

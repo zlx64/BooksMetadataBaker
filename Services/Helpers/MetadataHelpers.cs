@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
 
-namespace PrepKavitaPdf.Services.Helpers;
+namespace BooksMetadataBaker.Services.Helpers;
 
 public static class MetadataHelpers
 {

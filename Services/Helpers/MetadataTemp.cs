@@ -1,4 +1,4 @@
-namespace PrepKavitaPdf.Services.Helpers;
+namespace BooksMetadataBaker.Services.Helpers;
 
 public static class MetadataTemp
 {

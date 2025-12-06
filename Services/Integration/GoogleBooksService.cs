@@ -1,8 +1,8 @@
 using System.Text.Json;
-using PrepKavitaPdf.Models;
 using System.Text.RegularExpressions;
+using BooksMetadataBaker.Models;
 
-namespace PrepKavitaPdf.Services.Integration;
+namespace BooksMetadataBaker.Services.Integration;
 
 public class GoogleBooksService(
     HttpClient http,

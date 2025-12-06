@@ -1,8 +1,8 @@
+using BooksMetadataBaker.Models;
+using BooksMetadataBaker.Services.Abstract;
 using Microsoft.AspNetCore.Mvc;
-using PrepKavitaPdf.Models;
-using PrepKavitaPdf.Services.Abstract;
 
-namespace PrepKavitaPdf.Controllers;
+namespace BooksMetadataBaker.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]

@@ -1,8 +1,8 @@
-using PrepKavitaPdf.Models;
-using PrepKavitaPdf.Services.Abstract;
-using PrepKavitaPdf.Services.Integration;
+using BooksMetadataBaker.Models;
+using BooksMetadataBaker.Services.Abstract;
+using BooksMetadataBaker.Services.Integration;
 
-namespace PrepKavitaPdf.Services;
+namespace BooksMetadataBaker.Services;
 
 public class AggregatedMetadataService(
     AniListService ani,

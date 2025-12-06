@@ -1,4 +1,4 @@
-namespace PrepKavitaPdf.Services.Types;
+namespace BooksMetadataBaker.Services.Types;
 
 public sealed record EBookMetadataAttemptResult(
     string FilePath,

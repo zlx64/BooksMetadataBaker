@@ -1,4 +1,4 @@
-// PrepKavita eBook Upload UI Logic (Updated for per-file processing uploads - PDF and EPUB support)
+// BooksMetadataBaker eBook Upload UI Logic (Updated for per-file processing uploads - PDF and EPUB support)
 // ---------------------------------------------------------------------
 // Responsibilities:
 // - Manage form state (title, type, selected files)

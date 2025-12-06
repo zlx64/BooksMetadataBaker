@@ -1,6 +1,6 @@
-using PrepKavitaPdf.Services.Types;
+using BooksMetadataBaker.Services.Types;
 
-namespace PrepKavitaPdf.Services.Abstract;
+namespace BooksMetadataBaker.Services.Abstract;
 
 public interface IEBookMetadataUpdater
 {

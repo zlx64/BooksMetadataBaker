@@ -1,7 +1,7 @@
-using PrepKavitaPdf.Services.Types;
 using System.Text.Json;
+using BooksMetadataBaker.Services.Types;
 
-namespace PrepKavitaPdf.Services.Helpers;
+namespace BooksMetadataBaker.Services.Helpers;
 
 public static class EBookSidecarWriter
 {

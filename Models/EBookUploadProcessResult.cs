@@ -1,4 +1,4 @@
-namespace PrepKavitaPdf.Models;
+namespace BooksMetadataBaker.Models;
 
 public sealed record EBookUploadProcessResult(
     string File,

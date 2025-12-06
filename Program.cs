@@ -1,6 +1,6 @@
-using PrepKavitaPdf.Services;
-using PrepKavitaPdf.Services.Abstract;
-using PrepKavitaPdf.Services.Integration;
+using BooksMetadataBaker.Services;
+using BooksMetadataBaker.Services.Abstract;
+using BooksMetadataBaker.Services.Integration;
 using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -66,7 +66,6 @@ app.MapGet("/", () => Results.Redirect("/index.html"));
 
 try
 {
-    Log.Information("Starting PrepKavitaPdf web application - now supports PDF and EPUB files");
     app.Run();
 }
 catch (Exception ex)
