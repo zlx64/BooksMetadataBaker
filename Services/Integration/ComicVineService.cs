@@ -1,7 +1,3 @@
-using System.Text.Json;
-using System.Text.RegularExpressions;
-using BooksMetadataBaker.Models;
-
 namespace BooksMetadataBaker.Services.Integration;
 
 public class ComicVineService(
@@ -14,8 +10,6 @@ public class ComicVineService(
     public async Task<Dictionary<string,string>> TryFetchAsync(string title, BookType type, CancellationToken ct)
     {
         if (type is not BookType.Comic) return new Dictionary<string,string>();
-
-        var cacheKey = $"ComicVine:{type}:{title}";
         
         try
         {
@@ -53,9 +47,9 @@ public class ComicVineService(
         }
     }
 
-    private static string? Clean(string? v)
+    private static string Clean(string? v)
     {
-        if (string.IsNullOrWhiteSpace(v)) return v;
+        if (string.IsNullOrWhiteSpace(v)) return string.Empty;
         v = Regex.Replace(v, @"<br\s*/?>", "\n", RegexOptions.IgnoreCase);
         v = Regex.Replace(v, @"<[^>]+>", string.Empty); // strip tags
         return System.Net.WebUtility.HtmlDecode(v).Trim();

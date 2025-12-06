@@ -1,7 +1,3 @@
-using BooksMetadataBaker.Models;
-using BooksMetadataBaker.Services.Abstract;
-using BooksMetadataBaker.Services.Integration;
-
 namespace BooksMetadataBaker.Services;
 
 public class AggregatedMetadataService(

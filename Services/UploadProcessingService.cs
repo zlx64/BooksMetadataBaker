@@ -1,7 +1,4 @@
 using System.Globalization;
-using System.Text.RegularExpressions;
-using BooksMetadataBaker.Models;
-using BooksMetadataBaker.Services.Abstract;
 using BooksMetadataBaker.Services.Types;
 
 namespace BooksMetadataBaker.Services;

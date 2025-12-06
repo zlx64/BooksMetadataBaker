@@ -1,5 +1,3 @@
-using BooksMetadataBaker.Models;
-
 namespace BooksMetadataBaker.Services.Abstract;
 
 public interface IUploadProcessingService

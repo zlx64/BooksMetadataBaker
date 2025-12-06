@@ -1,6 +1,3 @@
-using System.Text.Json;
-using BooksMetadataBaker.Models;
-using BooksMetadataBaker.Services.Abstract;
 using BooksMetadataBaker.Services.Helpers;
 using BooksMetadataBaker.Services.Types;
 using static BooksMetadataBaker.Services.Helpers.PdfGhostscript;

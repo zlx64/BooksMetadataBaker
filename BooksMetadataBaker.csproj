@@ -22,8 +22,4 @@
     <PackageReference Include="Serilog.Enrichers.Thread" Version="3.1.0" />
   </ItemGroup>
 
-  <ItemGroup>
-    <Folder Include="Startup" />
-  </ItemGroup>
-
 </Project>

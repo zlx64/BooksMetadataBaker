@@ -1,7 +1,3 @@
-using BooksMetadataBaker.Models;
-using BooksMetadataBaker.Services.Abstract;
-using Microsoft.AspNetCore.Mvc;
-
 namespace BooksMetadataBaker.Controllers;
 
 [ApiController]

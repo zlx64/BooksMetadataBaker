@@ -1,7 +1,3 @@
-using System.Text.Json;
-using System.Text.RegularExpressions;
-using BooksMetadataBaker.Models;
-
 namespace BooksMetadataBaker.Services.Integration;
 
 public class GoogleBooksService(
@@ -79,9 +75,9 @@ public class GoogleBooksService(
         }
     }
 
-    private static string? Clean(string? v)
+    private static string Clean(string? v)
     {
-        if (string.IsNullOrWhiteSpace(v)) return v;
+        if (string.IsNullOrWhiteSpace(v)) return string.Empty;
         v = Regex.Replace(v, @"<br\s*/?>", "\n", RegexOptions.IgnoreCase);
         v = Regex.Replace(v, @"<[^>]+>", string.Empty);
         return System.Net.WebUtility.HtmlDecode(v).Trim();

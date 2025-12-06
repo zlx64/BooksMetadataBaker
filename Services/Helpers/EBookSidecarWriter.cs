@@ -1,4 +1,3 @@
-using System.Text.Json;
 using BooksMetadataBaker.Services.Types;
 
 namespace BooksMetadataBaker.Services.Helpers;
