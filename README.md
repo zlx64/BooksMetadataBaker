@@ -2,7 +2,7 @@
 
 A modern ASP.NET Core web application for enriching eBook metadata (PDF and EPUB) by fetching information from multiple online sources and organizing files for media server applications like Kavita.
 
-![.NET 8](https://img.shields.io/badge/.NET-8.0-512BD4)
+![.NET 10](https://img.shields.io/badge/.NET-10.0-512BD4)
 ![License](https://img.shields.io/github/license/zlx64/BooksMetadataBaker)
 
 ## 📖 Overview
@@ -51,7 +51,7 @@ BooksMetadataBaker automatically enhances your eBook collection by:
 
 ### Prerequisites
 
-- **.NET 8.0 SDK** (for development)
+- **.NET 10.0 SDK** (for development)
 - **Docker** (for containerized deployment)
 - **Ghostscript** (automatically installed in Docker)
 - **Calibre** (automatically installed in Docker)
@@ -71,6 +71,29 @@ docker run -d \
   -e PdfLibrary__RootFolder=/data/books \
   --name metadata-baker \
   books-metadata-baker
+```
+
+#### Option 1b: Docker Compose
+
+Create a `docker-compose.yml` file:
+
+```yaml
+services:
+  books-metadata-baker:
+    image: ghcr.io/zlx64/booksmetadatabaker:latest
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data/books:/data/books
+    environment:
+      - PdfLibrary__RootFolder=/data/books
+    restart: unless-stopped
+```
+
+Then run:
+
+```bash
+docker compose up -d
 ```
 
 #### Option 2: Local Development
@@ -189,46 +212,9 @@ Parameters:
 }
 ```
 
-## 🏗️ Project Structure
-
-```
-BooksMetadataBaker/
-├── Controllers/
-│   └── UploadController.cs          # API endpoints
-├── Models/
-│   ├── BookType.cs                  # Book type enum
-│   ├── UploadRequest.cs             # Upload request model
-│   └── EBookUploadProcessResult.cs  # Processing result model
-├── Services/
-│   ├── Abstract/                    # Service interfaces
-│   ├── Integration/                 # External API services
-│   │   ├── AniListService.cs
-│   │   ├── GoogleBooksService.cs
-│   │   └── ComicVineService.cs
-│   ├── Helpers/                     # Utility classes
-│   │   ├── MetadataHelpers.cs
-│   │   └── EBookSidecarWriter.cs
-│   ├── AggregatedMetadataService.cs # Metadata aggregation
-│   ├── EBookMetadataUpdater.cs      # Metadata embedding
-│   └── UploadProcessingService.cs   # Upload orchestration
-├── Startup/                         # Configuration classes
-│   ├── LoggingConfiguration.cs
-│   ├── ServiceConfiguration.cs
-│   ├── HttpClientConfiguration.cs
-│   └── MiddlewareConfiguration.cs
-├── wwwroot/                         # Static web files
-│   ├── css/
-│   ├── js/
-│   └── index.html
-├── GlobalUsings.cs                  # Global using directives
-├── Program.cs                       # Application entry point
-├── appsettings.json                 # Configuration
-└── Dockerfile                       # Container definition
-```
-
 ## 🔧 Technology Stack
 
-- **Framework**: ASP.NET Core 8.0
+- **Framework**: ASP.NET Core 10.0
 - **Language**: C# 12.0
 - **Logging**: Serilog with Console and File sinks
 - **HTTP Client**: IHttpClientFactory

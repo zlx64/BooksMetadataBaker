@@ -1,4 +1,4 @@
-## .gitignore for .NET 8 / Visual Studio 2022 / JetBrains Rider / VS Code
+## .gitignore for .NET 10 / Visual Studio 2026 / JetBrains Rider / VS Code
 ## Based on official templates (VisualStudio.gitignore + Dotnet.gitignore) with additions for Ghostscript, Docker, Copilot caches, and frontend assets.
 ## Update reference: https://github.com/github/gitignore
 
@@ -31,7 +31,7 @@ artifacts/
 *.tlog
 *.lastcodeanalysissucceeded
 
-# Visual Studio 2022 / config
+# Visual Studio 2026 / config
 .vs/
 **/.vsconfig
 
