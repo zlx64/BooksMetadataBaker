@@ -1,11 +1,11 @@
-﻿# Books Metadata Baker 📚✨🍞
+﻿# Books Metadata Baker
 
 A modern ASP.NET Core web application for enriching eBook metadata (PDF and EPUB) by fetching information from multiple online sources and organizing files for media server applications like Kavita.
 
 ![.NET 10](https://img.shields.io/badge/.NET-10.0-512BD4)
 ![License](https://img.shields.io/github/license/zlx64/BooksMetadataBaker)
 
-## 📖 Overview
+## Overview
 
 BooksMetadataBaker automatically enhances your eBook collection by:
 - Fetching metadata from **AniList**, **Google Books**, and **ComicVine**
@@ -15,18 +15,14 @@ BooksMetadataBaker automatically enhances your eBook collection by:
 - Supporting both PDF and EPUB formats
 - Organizing files by book type into configurable folder structures
 
-## ✨ Features
+## Features
 
-### 🔍 Multi-Source Metadata Aggregation
+### Multi-Source Metadata Aggregation
 - **AniList**: Manga and Light Novel metadata with multilingual title support
 - **Google Books**: General book information and descriptions
 - **ComicVine**: Comic book metadata with detailed attributes
 
-### 📚 eBook Format Support
-- **PDF**: Full metadata embedding using Ghostscript
-- **EPUB**: Metadata extraction and sidecar generation
-
-### 🎯 Metadata Management
+### Metadata Management
 - Automatic title normalization (English, Romaji, Native)
 - Genre and tag aggregation
 - Author/creator information
@@ -34,139 +30,123 @@ BooksMetadataBaker automatically enhances your eBook collection by:
 - Age rating inference
 - Description cleaning and formatting
 
-### 🗂️ File Organization
-- Configurable folder structure by book type
+### File Organization
+- Per-category folder configuration (absolute or relative paths)
 - Kavita series metadata generation
 - Detailed processing logs per file
 - Batch processing with concurrent upload support (up to 4 simultaneous)
 
-### 🖥️ User Interface
+### User Interface
 - Clean, modern web UI built with Vue.js
 - Real-time upload progress tracking
 - Per-file status monitoring
 - Metadata preview and details view
 - Responsive design with custom styling
 
-## 🚀 Getting Started
+## Getting Started
 
 ### Prerequisites
 
 - **.NET 10.0 SDK** (for development)
 - **Docker** (for containerized deployment)
-- **Ghostscript** (automatically installed in Docker)
-- **Calibre** (automatically installed in Docker)
 
-### Installation
-
-#### Option 1: Docker (Recommended)
-
-```bash
-# Build the Docker image
-docker build -t books-metadata-baker .
-
-# Run the container
-docker run -d \
-  -p 8080:8080 \
-  -v /path/to/your/books:/data/books \
-  -e PdfLibrary__RootFolder=/data/books \
-  --name metadata-baker \
-  books-metadata-baker
-```
-
-#### Option 1b: Docker Compose
-
-Create a `docker-compose.yml` file:
+### Docker Compose (Recommended)
 
 ```yaml
 services:
   books-metadata-baker:
     image: ghcr.io/zlx64/booksmetadatabaker:latest
+    restart: unless-stopped
+    user: "1000:1000"
+    environment:
+      BOOK_DIR: /data/books/Novel
+      LN_DIR: /data/books/Ranobe
+      MANGA_DIR: /data/books/Manga
+      COMIC_DIR: /data/books/Comics
+      GOOGLE_BOOKS_KEY: ""
+      COMIC_VINE_KEY: ""
+    volumes:
+      - /host/novels:/data/books/Novel:rw
+      - /host/ranobe:/data/books/Ranobe:rw
+      - /host/manga:/data/books/Manga:rw
+      - /host/comics:/data/books/Comics:rw
     ports:
       - "8080:8080"
-    volumes:
-      - ./data/books:/data/books
-    environment:
-      - PdfLibrary__RootFolder=/data/books
-    restart: unless-stopped
 ```
 
-Then run:
+### Docker Run
+
+Per-category mounts (recommended, `ROOT_DIR` not needed):
 
 ```bash
-docker compose up -d
+docker run -d \
+  -p 8080:8080 \
+  -v /host/novels:/data/novels \
+  -v /host/ranobe:/data/ranobe \
+  -v /host/manga:/data/manga \
+  -v /host/comics:/data/comics \
+  -e BOOK_DIR=/data/novels \
+  -e LN_DIR=/data/ranobe \
+  -e MANGA_DIR=/data/manga \
+  -e COMIC_DIR=/data/comics \
+  -e GOOGLE_BOOKS_KEY=YOUR_KEY \
+  -e COMIC_VINE_KEY=YOUR_KEY \
+  --name metadata-baker \
+  books-metadata-baker
 ```
 
-#### Option 2: Local Development
+Single mount (all types under one folder, requires `ROOT_DIR`):
 
 ```bash
-# Clone the repository
+docker run -d \
+  -p 8080:8080 \
+  -v /host/books:/data/books \
+  -e ROOT_DIR=/data/books \
+  -e GOOGLE_BOOKS_KEY=YOUR_KEY \
+  --name metadata-baker \
+  books-metadata-baker
+```
+
+### Local Development
+
+```bash
 git clone https://github.com/zlx64/PrepKavitaPdf.git
 cd PrepKavitaPdf
-
-# Restore dependencies
 dotnet restore
-
-# Run the application
 dotnet run
 ```
 
-The application will be available at `http://localhost:5000` (or the port specified in your launch settings).
+The application will be available at `http://localhost:5000`.
 
-## ⚙️ Configuration
+## Configuration
 
-Configure the application through `appsettings.json`:
+All settings can be overridden via environment variables. Defaults are in `appsettings.json`.
 
-### Library Settings
+| Environment Variable | Default | Description |
+|---|---|---|
+| `ROOT_DIR` | `/data/books` | Base folder (only needed if type dirs are relative) |
+| `BOOK_DIR` | `Novel` | Folder for Book type (relative to `ROOT_DIR` or absolute) |
+| `LN_DIR` | `Ranobe` | Folder for LightNovel type |
+| `MANGA_DIR` | `Manga` | Folder for Manga type |
+| `COMIC_DIR` | `Comics` | Folder for Comic type |
+| `GOOGLE_BOOKS_KEY` | *(empty)* | Google Books API key |
+| `COMIC_VINE_KEY` | *(empty)* | ComicVine API key |
 
-```json
-{
-  "PdfLibrary": {
-    "RootFolder": "/data/books",
-    "ProcessingBatchSize": 4,
-    "TypeFolders": {
-      "Book": "Novel",
-      "LightNovel": "Ranobe",
-      "Manga": "Manga",
-      "Comic": "Comics"
-    }
-  }
-}
-```
+Directory values can be **relative** (subfolder of `ROOT_DIR`) or **absolute** (e.g. `/mnt/comics`). When all type directories are absolute, `ROOT_DIR` is not required.
 
-### API Configuration
-
-```json
-{
-  "PdfLibrary": {
-    "AniList": {
-      "BaseUrl": "https://graphql.anilist.co"
-    },
-    "GoogleBooks": {
-      "BaseUrl": "https://www.googleapis.com/books/v1/volumes",
-      "ApiKey": "YOUR_API_KEY"
-    },
-    "ComicVine": {
-      "BaseUrl": "https://comicvine.gamespot.com/api",
-      "ApiKey": "YOUR_API_KEY"
-    }
-  }
-}
-```
-
-### Tool Settings
+### Tool Settings (`appsettings.json`)
 
 ```json
 {
   "Tools": {
     "SidecarMetadataEnabled": true,
     "GhostscriptEnabled": true,
-    "GhostscriptPath": "gs",
-    "PreferredTitleVariant": "English"
+    "GhostscriptPath": "gs"
   }
 }
 ```
 
-## 📝 Usage
+## Usage
 
 ### Web Interface
 
@@ -190,115 +170,61 @@ Parameters:
 ```
 
 **Response:**
+
 ```json
 {
   "Files": [
     {
       "File": "processed_filename.pdf",
       "Success": true,
-      "Message": "Success",
-      "Errors": null
+      "ErrorMessage": null,
+      "Attempts": 2,
+      "AppliedMetadata": { "Title": "Book Title", "Authors": "Author Name" },
+      "DirectAttemptSuccess": true,
+      "RepairAttemptSuccess": false,
+      "GhostscriptRan": true,
+      "Format": "Pdf"
     }
   ],
-  "Metadata": {
-    "Title": "Book Title",
-    "TitleEnglish": "English Title",
-    "Authors": "Author Name",
-    "Description": "Book description...",
-    "Genres": "Fantasy, Adventure",
-    "PublishedDate": "2024-01-01"
-  },
+  "Metadata": { "Title": "Book Title", "Authors": "Author Name" },
   "Cancelled": false
 }
 ```
 
-## 🔧 Technology Stack
+## Technology Stack
 
-- **Framework**: ASP.NET Core 10.0
-- **Language**: C# 12.0
-- **Logging**: Serilog with Console and File sinks
-- **HTTP Client**: IHttpClientFactory
-- **Caching**: In-Memory Cache
-- **Frontend**: Vue.js 3, Vanilla JavaScript
-- **Container**: Docker with Debian-based runtime
-- **External Tools**: Ghostscript, Calibre
+- **Framework**: ASP.NET Core 10.0 / C# 12.0
+- **Logging**: Serilog (Console + File)
+- **Frontend**: Vue.js 3
+- **Container**: Docker (Debian-based, includes Ghostscript + Calibre)
 
-## 📊 Metadata Pipeline
+## Metadata Pipeline
 
 ```
-1. Upload eBook file
-   ↓
-2. Fetch metadata from multiple sources (parallel)
-   ├── AniList (Manga/Light Novels)
-   ├── Google Books (General books)
-   └── ComicVine (Comics)
-   ↓
-3. Aggregate and normalize metadata
-   ↓
-4. Embed metadata into file (PDF via Ghostscript)
-   ↓
-5. Generate Kavita metadata JSON
-   ↓
-6. Write sidecar metadata file
-   ↓
-7. Move to organized folder structure
+Upload eBook file
+  -> Fetch metadata from AniList / Google Books / ComicVine (parallel)
+  -> Aggregate and normalize metadata
+  -> Embed metadata into file (PDF via Ghostscript)
+  -> Generate Kavita metadata JSON + sidecar file
+  -> Save to organized folder structure
 ```
 
-## 🛠️ Development
+## Output Files
 
-### Building
-
-```bash
-dotnet build
-```
-
-### Running Tests
-
-```bash
-dotnet test
-```
-
-### Code Structure Guidelines
-
-- Extension methods for configuration (Startup folder)
-- Global usings for common namespaces
-- Async/await patterns throughout
-- Dependency injection for all services
-- Structured logging with Serilog
-
-## 📄 Output Files
-
-### Per eBook File
+Per eBook file:
 - **Processed eBook**: Original file with embedded metadata
-- **[filename].metadata.json**: Kavita series metadata
-- **[filename].sidecar.json**: Detailed processing log with all metadata
+- **`[filename].metadata.json`**: Kavita series metadata
+- **`[filename].sidecar.json`**: Detailed processing log with all metadata
 
-### Sidecar Example
-```json
-{
-  "OriginalFileName": "book.pdf",
-  "ProcessedFileName": "processed_book.pdf",
-  "Success": true,
-  "ProcessingTimestamp": "2024-01-15T10:30:00Z",
-  "Metadata": {
-    "Title": "Book Title",
-    "Authors": "Author Name"
-  },
-  "MetadataApplied": true,
-  "GhostscriptRan": true,
-  "Errors": null
-}
-```
-
-## 🤝 Contributing
+## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
 
-## 📜 License
+## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+MIT License - see the LICENSE file for details.
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 - **AniList** for manga and light novel metadata
 - **Google Books API** for book information
@@ -306,10 +232,6 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - **Ghostscript** for PDF metadata embedding
 - **Calibre** for EPUB processing capabilities
 
-## 📞 Support
+## Support
 
 For issues, questions, or contributions, please visit the [GitHub repository](https://github.com/zlx64/BooksMetadataBaker).
-
----
-
-Made with ❤️ for the book lovers and digital library enthusiasts

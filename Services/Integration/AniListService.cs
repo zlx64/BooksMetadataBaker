@@ -1,6 +1,7 @@
 namespace BooksMetadataBaker.Services.Integration;
 
 public class AniListService(HttpClient http, ILogger<AniListService> logger)
+    : IMetadataSource
 {
     public async Task<Dictionary<string, string>> TryFetchAsync(string title, BookType type, CancellationToken ct)
     {
@@ -86,7 +87,7 @@ public class AniListService(HttpClient http, ILogger<AniListService> logger)
         }
 
         if (media.TryGetProperty("description", out var desc))
-            dict["Description"] = Clean(desc.GetString());
+            dict["Description"] = HtmlCleaner.StripHtml(desc.GetString());
         if (media.TryGetProperty("siteUrl", out var site))
             dict["SourceUrl"] = site.GetString() ?? string.Empty;
         if (media.TryGetProperty("format", out var fmt))
@@ -133,14 +134,6 @@ public class AniListService(HttpClient http, ILogger<AniListService> logger)
 
         dict["Source"] = "AniList";
         return dict;
-    }
-
-    private static string Clean(string? v)
-    {
-        if (string.IsNullOrWhiteSpace(v)) return string.Empty;
-        v = Regex.Replace(v, @"<br\s*/?>", "\n", RegexOptions.IgnoreCase);
-        v = Regex.Replace(v, @"<[^>]+>", string.Empty);
-        return System.Net.WebUtility.HtmlDecode(v).Trim();
     }
 
     private static string BuildDate(JsonElement el)

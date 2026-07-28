@@ -18,9 +18,4 @@ public interface IEBookMetadataUpdater
         string? errors,
         bool metadataApplied,
         bool ghostscriptRan);
-
-    void WriteKavitaSeriesMetadata(
-        string filePath,
-        IDictionary<string, string> metadata,
-        string fallbackTitle);
 }

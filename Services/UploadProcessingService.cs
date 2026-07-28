@@ -7,16 +7,14 @@ public class UploadProcessingService(
     IConfiguration config,
     IAggregatedMetadataService metadataService,
     IEBookMetadataUpdater metadataUpdater,
+    IKavitaMetadataWriter kavitaWriter,
     ILogger<UploadProcessingService> logger) : IUploadProcessingService
 {
     public async Task<(EBookUploadProcessResult Result, IDictionary<string,string> Metadata, bool Cancelled, string? Error)> ProcessSingleAsync(UploadRequest info, IFormFile file, CancellationToken ct)
     {
         var root = config["PdfLibrary:RootFolder"];
-        if (string.IsNullOrWhiteSpace(root)) 
-            return (CreateErrorResult("", "Root folder not configured", EBookFormat.Pdf, new Dictionary<string,string>()), new Dictionary<string,string>(), false, "Root folder not configured");
-
         var typeFolderSection = config.GetSection("PdfLibrary:TypeFolders");
-        var typeFolder = info.Type switch
+        var typeFolderRaw = info.Type switch
         {
             BookType.Book => typeFolderSection["Book"] ?? "Novel",
             BookType.LightNovel => typeFolderSection["LightNovel"] ?? "Ranobe",
@@ -25,7 +23,14 @@ public class UploadProcessingService(
             _ => "Other"
         };
 
-        var titleFolder = Path.Combine(root, Sanitize(typeFolder), Sanitize(info.Title));
+        var isAbsolute = Path.IsPathRooted(typeFolderRaw);
+        if (string.IsNullOrWhiteSpace(root) && !isAbsolute)
+            return (CreateErrorResult("", "ROOT_DIR not configured and type folder is not absolute", EBookFormat.Pdf, new Dictionary<string,string>()), new Dictionary<string,string>(), false, "ROOT_DIR not configured and type folder is not absolute");
+
+        var baseFolder = isAbsolute
+            ? typeFolderRaw
+            : Path.Combine(root!, Sanitize(typeFolderRaw));
+        var titleFolder = Path.Combine(baseFolder, Sanitize(info.Title));
         var format = DetectFormat(file.FileName);
 
         try
@@ -82,7 +87,7 @@ public class UploadProcessingService(
             var ghostscriptRan = attempts.Any(a => a.GhostscriptRan);
             var errorMessage = CombineErrors(attempts);
             metadataUpdater.WriteSidecarSummary(savePath, meta, info.Title, success, errorMessage, success, ghostscriptRan);
-            if (success) metadataUpdater.WriteKavitaSeriesMetadata(savePath, meta, info.Title);
+            if (success) kavitaWriter.Write(savePath, meta, info.Title);
             result = new(
                 File: Path.GetFileName(savePath),
                 Success: success,

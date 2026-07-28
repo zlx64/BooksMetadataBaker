@@ -4,6 +4,7 @@ public class GoogleBooksService(
     HttpClient http,
     IConfiguration config,
     ILogger<GoogleBooksService> logger)
+    : IMetadataSource
 {
     private readonly string apiKey = config["PdfLibrary:GoogleBooks:ApiKey"] ?? string.Empty;
 
@@ -42,7 +43,7 @@ public class GoogleBooksService(
             if (volumeInfo.TryGetProperty("title", out var ti)) dict["Title"] = ti.GetString() ?? string.Empty;
             if (volumeInfo.TryGetProperty("subtitle", out var sub) && !string.IsNullOrWhiteSpace(sub.GetString())) dict["Subtitle"] = sub.GetString() ?? string.Empty;
             if (volumeInfo.TryGetProperty("authors", out var authors) && authors.ValueKind==JsonValueKind.Array) dict["Authors"] = string.Join(", ", authors.EnumerateArray().Select(a=>a.GetString()));
-            if (volumeInfo.TryGetProperty("description", out var desc)) dict["Description"] = Clean(desc.GetString());
+            if (volumeInfo.TryGetProperty("description", out var desc)) dict["Description"] = HtmlCleaner.StripHtml(desc.GetString());
             if (volumeInfo.TryGetProperty("publishedDate", out var pub)) dict["PublishedDate"] = pub.GetString() ?? string.Empty;
             if (volumeInfo.TryGetProperty("publisher", out var publisher)) dict["Publisher"] = publisher.GetString() ?? string.Empty;
             if (volumeInfo.TryGetProperty("pageCount", out var pages) && pages.ValueKind==JsonValueKind.Number) dict["PageCount"] = pages.GetInt32().ToString();
@@ -63,7 +64,7 @@ public class GoogleBooksService(
                     }
                 }
             }
-            if (chosen.TryGetProperty("searchInfo", out var searchInfo) && searchInfo.TryGetProperty("textSnippet", out var snippet)) dict["Snippet"] = Clean(snippet.GetString());
+            if (chosen.TryGetProperty("searchInfo", out var searchInfo) && searchInfo.TryGetProperty("textSnippet", out var snippet)) dict["Snippet"] = HtmlCleaner.StripHtml(snippet.GetString());
             if (volumeInfo.TryGetProperty("infoLink", out var link)) dict["SourceUrl"] = link.GetString() ?? string.Empty;
             dict["Source"] = "GoogleBooks";
             return dict;
@@ -75,11 +76,4 @@ public class GoogleBooksService(
         }
     }
 
-    private static string Clean(string? v)
-    {
-        if (string.IsNullOrWhiteSpace(v)) return string.Empty;
-        v = Regex.Replace(v, @"<br\s*/?>", "\n", RegexOptions.IgnoreCase);
-        v = Regex.Replace(v, @"<[^>]+>", string.Empty);
-        return System.Net.WebUtility.HtmlDecode(v).Trim();
-    }
 }

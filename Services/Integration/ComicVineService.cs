@@ -4,6 +4,7 @@ public class ComicVineService(
     HttpClient http,
     IConfiguration config,
     ILogger<ComicVineService> logger)
+    : IMetadataSource
 {
     private readonly string apiKey = config["PdfLibrary:ComicVine:ApiKey"] ?? string.Empty;
 
@@ -28,7 +29,7 @@ public class ComicVineService(
             var first = results[0];
             var dict = new Dictionary<string,string>();
             if (first.TryGetProperty("name", out var name)) dict["Title"] = name.GetString() ?? string.Empty;
-            if (first.TryGetProperty("description", out var desc)) dict["Description"] = Clean(desc.GetString());
+            if (first.TryGetProperty("description", out var desc)) dict["Description"] = HtmlCleaner.StripHtml(desc.GetString());
             if (first.TryGetProperty("site_detail_url", out var site)) dict["SourceUrl"] = site.GetString() ?? string.Empty;
             if (first.TryGetProperty("start_year", out var startYear) && startYear.ValueKind==JsonValueKind.Number) dict["StartYear"] = startYear.GetInt32().ToString();
             if (first.TryGetProperty("count_of_issues", out var issues) && issues.ValueKind==JsonValueKind.Number) dict["IssueCount"] = issues.GetInt32().ToString();
@@ -47,11 +48,4 @@ public class ComicVineService(
         }
     }
 
-    private static string Clean(string? v)
-    {
-        if (string.IsNullOrWhiteSpace(v)) return string.Empty;
-        v = Regex.Replace(v, @"<br\s*/?>", "\n", RegexOptions.IgnoreCase);
-        v = Regex.Replace(v, @"<[^>]+>", string.Empty); // strip tags
-        return System.Net.WebUtility.HtmlDecode(v).Trim();
-    }
 }

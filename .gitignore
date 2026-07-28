@@ -187,3 +187,8 @@ pdf_gs_cond*/
 ############################
 # Remove below if you want metadata sidecar committed
 *.meta.json
+
+############################
+# Graphify                 #
+############################
+graphify-out/
