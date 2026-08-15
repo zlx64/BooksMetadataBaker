@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Globalization;
 using BooksMetadataBaker.Services.Helpers;
 
@@ -6,125 +5,113 @@ namespace BooksMetadataBaker.Services;
 
 public static class CalibreMetadataUpdater
 {
-    public static bool TryCleanEBookMetadata(string path, ILogger logger, out string? error)
+    public const int EbookMetaTimeoutMs = 120_000;
+    private static readonly string[] EbookMetaFallbackNames = ["ebook-meta"];
+
+    public static string? ResolveEbookMeta(string? configuredPath) =>
+        ToolResolver.Resolve(configuredPath, EbookMetaFallbackNames);
+
+    public static async Task<(bool Ok, string? Error)> TryCleanEBookMetadataAsync(
+        string path,
+        string? ebookMetaPath,
+        ILogger logger,
+        CancellationToken ct)
     {
-        error = null;
-        try
+        var exe = ResolveEbookMeta(ebookMetaPath);
+        if (exe is null)
+            return (false, "ebook-meta not found");
+
+        var (ok, _, stdout, stderr, runErr) = await ProcessRunner.RunAsync(
+            exe, BuildEbookMetaCleanArgs(path), logger, EbookMetaTimeoutMs, ct);
+
+        if (runErr != null)
         {
-            var args = BuildEbookMetaCleanArgs(path);
-            var psi = new ProcessStartInfo("ebook-meta", args)
-            {
-                RedirectStandardError = true,
-                RedirectStandardOutput = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            using var proc = Process.Start(psi);
-            if (proc == null)
-            {
-                error = "failed to start ebook-meta (cleanup)";
-                return false;
-            }
-            proc.WaitForExit();
-            var stderr = proc.StandardError.ReadToEnd();
-            var stdout = proc.StandardOutput.ReadToEnd();
-            if (proc.ExitCode != 0)
-            {
-                error = string.IsNullOrWhiteSpace(stderr + stdout) ? $"ebook-meta cleanup exit {proc.ExitCode}" : stderr + stdout;
-                return false;
-            }
-            return true;
+            logger.LogWarning("ebook-meta cleanup run error for {File}: {Error}", path, runErr);
+            return (false, runErr);
         }
-        catch (Exception ex)
-        {
-            error = ex.Message;
-            logger.LogWarning(ex, "Cleanup exception for {File}", path);
-            return false;
-        }
+        if (!ok)
+            return (false, string.IsNullOrWhiteSpace(stderr + stdout)
+                ? "ebook-meta cleanup failed"
+                : (stderr + stdout).Trim());
+        return (true, null);
     }
 
-    public static bool TryWriteMetadataWithCalibre(
+    public static async Task<(bool Ok, string? Error)> TryWriteMetadataWithCalibreAsync(
         string path,
+        string? ebookMetaPath,
         IDictionary<string, string> metadata,
         string fallbackTitle,
         ILogger logger,
-        out string? error)
+        CancellationToken ct)
     {
-        error = null;
-        try
+        var exe = ResolveEbookMeta(ebookMetaPath);
+        if (exe is null)
+            return (false, "ebook-meta not found");
+
+        var (ok, _, stdout, stderr, runErr) = await ProcessRunner.RunAsync(
+            exe, BuildEbookMetaArgs(path, metadata, fallbackTitle), logger, EbookMetaTimeoutMs, ct);
+
+        if (runErr != null)
         {
-            var args = BuildEbookMetaArgs(path, metadata, fallbackTitle);
-            var psi = new ProcessStartInfo("ebook-meta", args)
-            {
-                RedirectStandardError = true,
-                RedirectStandardOutput = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            using var proc = Process.Start(psi);
-            if (proc == null)
-            {
-                error = "failed to start ebook-meta";
-                return false;
-            }
-            proc.WaitForExit();
-            var stderr = proc.StandardError.ReadToEnd();
-            var stdout = proc.StandardOutput.ReadToEnd();
-            if (proc.ExitCode != 0)
-            {
-                error = string.IsNullOrWhiteSpace(stderr + stdout) ? $"ebook-meta exit {proc.ExitCode}" : stderr + stdout;
-                return false;
-            }
-            return true;
+            logger.LogError("ebook-meta run error for {File}: {Error}", path, runErr);
+            return (false, runErr);
         }
-        catch (Exception ex)
-        {
-            error = ex.Message;
-            logger.LogError(ex, "ebook-meta exception for {File}", path);
-            return false;
-        }
+        if (!ok)
+            return (false, string.IsNullOrWhiteSpace(stderr + stdout)
+                ? "ebook-meta failed"
+                : (stderr + stdout).Trim());
+        return (true, null);
     }
 
-    private static string BuildEbookMetaCleanArgs(string filePath)
+    private static List<string> BuildEbookMetaCleanArgs(string filePath)
     {
         var fields = new[] { "--title", "--authors", "--comments", "--tags", "--series", "--publisher", "--isbn", "--language" };
         var parts = new List<string>();
-        foreach (var f in fields) parts.Add(f + " " + Q(string.Empty));
-        parts.Add(Q(filePath));
-        return string.Join(' ', parts);
-        static string Q(string v) => '"' + v.Replace("\"", "\\\"") + '"';
+        foreach (var field in fields)
+        {
+            parts.Add(field);
+            parts.Add(string.Empty);
+        }
+        parts.Add(filePath);
+        return parts;
     }
 
-    private static string BuildEbookMetaArgs(string filePath, IDictionary<string, string> meta, string fallbackTitle)
+    private static List<string> BuildEbookMetaArgs(string filePath, IDictionary<string, string> meta, string fallbackTitle)
     {
         var parts = new List<string>();
         var newTitle = Path.GetFileNameWithoutExtension(filePath);
-        parts.Add("--title " + Clean(newTitle));
-        parts.Add("--series " + Clean(fallbackTitle));
+        Add("--title", newTitle);
+        Add("--series", fallbackTitle);
         var idx = MetadataHelpers.ParseVolumeNumber(newTitle);
-        if (idx != null) parts.Add("--index " + Clean(idx.Value.ToString(CultureInfo.InvariantCulture)));
+        if (idx != null) Add("--index", idx.Value.ToString(CultureInfo.InvariantCulture));
         var rating = MetadataHelpers.GetFirst(meta, string.Empty, "AverageScore", "Rating", "UserRating");
-        if (!string.IsNullOrWhiteSpace(rating)) parts.Add("--rating " + Clean(rating));
+        Add("--rating", rating);
         var desc = MetadataHelpers.GetFirst(meta, string.Empty, "Description", "Snippet");
-        if (!string.IsNullOrWhiteSpace(desc)) parts.Add("--comments " + Clean(desc));
+        Add("--comments", desc);
         var publisher = MetadataHelpers.GetFirst(meta, string.Empty, "Publisher");
-        if (!string.IsNullOrWhiteSpace(publisher)) parts.Add("--publisher " + Clean(publisher));
+        Add("--publisher", publisher);
         var dateRaw = MetadataHelpers.GetFirst(meta, string.Empty, "PublishedDate", "StartDate", "StartYear");
         var dateIso = MetadataHelpers.NormDate(dateRaw);
-        if (!string.IsNullOrWhiteSpace(dateIso)) parts.Add("--date " + Clean(dateIso));
+        Add("--date", dateIso);
         var authorsRaw = MetadataHelpers.GetFirst(meta, string.Empty, "Authors", "Author", "Writer");
         if (!string.IsNullOrWhiteSpace(authorsRaw))
         {
             var authors = authorsRaw.Split([',', ';', '|', '&'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-            parts.Add("--authors " + Clean(string.Join(" & ", authors)));
+            Add("--authors", string.Join(" & ", authors));
         }
         var tagList = MetadataHelpers.GetTags(meta);
-        if (tagList.Count > 0) parts.Add("--tags " + Clean(string.Join(',', tagList)));
+        if (tagList.Count > 0) Add("--tags", string.Join(',', tagList));
         var lang = MetadataHelpers.GetFirst(meta, string.Empty, "Language");
-        if (!string.IsNullOrWhiteSpace(lang)) parts.Add("--language " + Clean(lang.Split([',', ';', ' '], StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? lang));
-        parts.Add(Clean(filePath));
-        return string.Join(' ', parts);
+        if (!string.IsNullOrWhiteSpace(lang))
+            Add("--language", lang.Split([',', ';', ' '], StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? lang);
+        parts.Add(filePath);
+        return parts;
 
-        static string Clean(string v) => '"' + v.Replace("\"", "\\\"") + '"';
+        void Add(string flag, string value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return;
+            parts.Add(flag);
+            parts.Add(value);
+        }
     }
 }

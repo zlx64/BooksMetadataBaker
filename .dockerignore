@@ -4,6 +4,10 @@ obj/
 **/bin/
 **/obj/
 
+# Runtime data / local tooling output
+container-data/
+graphify-out/
+
 # IDE
 .vs/
 .vscode/

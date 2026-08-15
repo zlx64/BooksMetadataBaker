@@ -4,7 +4,19 @@ namespace BooksMetadataBaker.Services.Helpers;
 
 public static class MetadataHelpers
 {
-    public static string Escape(string p) => p.Contains(' ') ? '"' + p + '"' : p;
+    /// <summary>
+    /// Extracts a volume/issue number token from a file name, e.g. "One Piece Vol. 10.pdf" -> "10".
+    /// Prefers explicit vol/volume keywords, falls back to the first bare number (1-999).
+    /// </summary>
+    public static string? ExtractVolumeToken(string fileName)
+    {
+        var baseName = Path.GetFileNameWithoutExtension(fileName);
+        var volMatch = Regex.Match(baseName, @"(\b|_)(?:v|vol|volume)[ _-]?(\d+(?:\.\d+)?)", RegexOptions.IgnoreCase);
+        if (volMatch.Success)
+            return volMatch.Groups[2].Value;
+        var numMatch = Regex.Match(baseName, @"\b(\d{1,3}(?:\.\d+)?)\b");
+        return numMatch.Success ? numMatch.Groups[1].Value : null;
+    }
 
     public static string GetFirst(IDictionary<string, string> dict, string fallback, params string[] keys)
     {

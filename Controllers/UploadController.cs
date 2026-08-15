@@ -2,13 +2,14 @@ namespace BooksMetadataBaker.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-public class UploadController(IUploadProcessingService processor) : ControllerBase
+public class UploadController(IUploadProcessingService processor, ILogger<UploadController> logger) : ControllerBase
 {
     private const int MaxFileSize = 524288000; // 500MB
     private static readonly string[] AllowedExtensions = { ".pdf", ".epub" };
 
     [HttpPost]
     [RequestSizeLimit(MaxFileSize)]
+    [EnableRateLimiting("upload")]
     public async Task<IActionResult> Upload([FromForm] UploadRequest info, IFormFile? file, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(info.Title)) 
@@ -23,7 +24,10 @@ public class UploadController(IUploadProcessingService processor) : ControllerBa
 
         var (result, metadata, cancelled, error) = await processor.ProcessSingleAsync(info, file, ct);
         if (error != null && string.IsNullOrWhiteSpace(result.File))
-            return StatusCode(500, error);
+        {
+            logger.LogWarning("Upload rejected: {Error}", error);
+            return StatusCode(500, "Internal server error");
+        }
 
         return Ok(new { Files = new[] { result }, Metadata = metadata, Cancelled = cancelled });
     }

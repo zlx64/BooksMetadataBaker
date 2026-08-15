@@ -1,7 +1,6 @@
 using BooksMetadataBaker.Services.Helpers;
 using BooksMetadataBaker.Services.Types;
 using static BooksMetadataBaker.Services.Helpers.PdfGhostscript;
-using static BooksMetadataBaker.Services.CalibreMetadataUpdater;
 using static BooksMetadataBaker.Services.Helpers.MetadataHelpers;
 using static BooksMetadataBaker.Services.Helpers.EBookSidecarWriter;
 
@@ -14,6 +13,7 @@ public class EBookMetadataUpdater : IEBookMetadataUpdater
     private readonly bool sidecarEnabled;
     private readonly bool gsEnabled;
     private readonly string gsPathCfg;
+    private readonly string ebookMetaPathCfg;
     private readonly ILogger<EBookMetadataUpdater> logger;
 
     public EBookMetadataUpdater(IConfiguration config, ILogger<EBookMetadataUpdater> logger)
@@ -21,13 +21,24 @@ public class EBookMetadataUpdater : IEBookMetadataUpdater
         sidecarEnabled = !bool.TryParse(config["Tools:SidecarMetadataEnabled"], out var sc) || sc;
         gsEnabled = !bool.TryParse(config["Tools:GhostscriptEnabled"], out var gse) || gse;
         gsPathCfg = string.IsNullOrWhiteSpace(config["Tools:GhostscriptPath"]) ? "gs" : config["Tools:GhostscriptPath"]!;
+        ebookMetaPathCfg = string.IsNullOrWhiteSpace(config["Tools:EbookMetaPath"]) ? "ebook-meta" : config["Tools:EbookMetaPath"]!;
         this.logger = logger;
 
         logger.LogInformation(
-            "EBookMetadataUpdater initialized. SidecarEnabled={SidecarEnabled}, GhostscriptEnabled={GhostscriptEnabled}, GhostscriptPathSetting={GhostscriptPath} (ebook-meta primary)",
+            "EBookMetadataUpdater initialized. SidecarEnabled={SidecarEnabled}, GhostscriptEnabled={GhostscriptEnabled}, GhostscriptPath={GhostscriptPath}, EbookMetaPath={EbookMetaPath}",
             sidecarEnabled,
             gsEnabled,
-            gsPathCfg);
+            gsPathCfg,
+            ebookMetaPathCfg);
+
+        if (CalibreMetadataUpdater.ResolveEbookMeta(ebookMetaPathCfg) is null)
+            logger.LogWarning(
+                "ebook-meta not found (configured path: {Path}). Metadata writing will fail until it is installed or Tools:EbookMetaPath is set.",
+                ebookMetaPathCfg);
+        if (gsEnabled && ResolveGhostscript(gsPathCfg) is null)
+            logger.LogWarning(
+                "ghostscript not found (configured path: {Path}). PDF repair will be unavailable until it is installed or Tools:GhostscriptPath is set.",
+                gsPathCfg);
     }
 
     public async Task<IReadOnlyList<EBookMetadataAttemptResult>> RunPipelineAsync(
@@ -71,31 +82,33 @@ public class EBookMetadataUpdater : IEBookMetadataUpdater
         return attempts;
     }
 
-    public Task<DirectAttemptResult> DirectAttemptAsync(MetadataRequest request, CancellationToken ct)
+    public async Task<DirectAttemptResult> DirectAttemptAsync(MetadataRequest request, CancellationToken ct)
     {
         if (ct.IsCancellationRequested)
-            return Task.FromResult(new DirectAttemptResult(false, "Cancelled"));
+            return new DirectAttemptResult(false, "Cancelled");
 
-        if (!TryCleanEBookMetadata(request.FilePath, logger, out var cleanErr))
+        var (cleaned, cleanErr) = await CalibreMetadataUpdater.TryCleanEBookMetadataAsync(request.FilePath, ebookMetaPathCfg, logger, ct);
+        if (!cleaned)
         {
             logger.LogWarning("Initial metadata cleanup failed for {File}: {Error}", request.FilePath, cleanErr);
-            return Task.FromResult(new DirectAttemptResult(false, cleanErr ?? "Cleanup failed"));
+            return new DirectAttemptResult(false, cleanErr ?? "Cleanup failed");
         }
 
-        var ok = TryWriteMetadataWithCalibre(
+        var (ok, err) = await CalibreMetadataUpdater.TryWriteMetadataWithCalibreAsync(
             request.FilePath,
+            ebookMetaPathCfg,
             request.Metadata,
             request.FallbackTitle,
             logger,
-            out var err);
+            ct);
 
-        return Task.FromResult(new DirectAttemptResult(ok, ok ? string.Empty : err ?? string.Empty));
+        return new DirectAttemptResult(ok, ok ? string.Empty : err ?? string.Empty);
     }
 
-    public Task<RepairAttemptResult> RepairAttemptAsync(MetadataRequest request, CancellationToken ct)
+    public async Task<RepairAttemptResult> RepairAttemptAsync(MetadataRequest request, CancellationToken ct)
     {
         if (ct.IsCancellationRequested)
-            return Task.FromResult(new RepairAttemptResult(false, "Cancelled", false));
+            return new RepairAttemptResult(false, "Cancelled", false);
 
         string? errors = null;
         var gsRan = false;
@@ -104,7 +117,8 @@ public class EBookMetadataUpdater : IEBookMetadataUpdater
 
         try
         {
-            if (RunGhostscriptTransform(request.FilePath, outputPath, logger, gsPathCfg, GhostscriptTimeoutMs, out var gsErr))
+            var (gsOk, gsErr) = await RunGhostscriptTransformAsync(request.FilePath, outputPath, logger, gsPathCfg, GhostscriptTimeoutMs, ct);
+            if (gsOk)
             {
                 gsRan = true;
             }
@@ -115,24 +129,26 @@ public class EBookMetadataUpdater : IEBookMetadataUpdater
             }
 
             if (ct.IsCancellationRequested)
-                return Task.FromResult(new RepairAttemptResult(false, "Cancelled", gsRan));
+                return new RepairAttemptResult(false, "Cancelled", gsRan);
 
-            if (!TryCleanEBookMetadata(outputPath, logger, out var cleanErr))
+            var (cleaned, cleanErr) = await CalibreMetadataUpdater.TryCleanEBookMetadataAsync(outputPath, ebookMetaPathCfg, logger, ct);
+            if (!cleaned)
             {
                 errors = Combine(errors, cleanErr);
                 logger.LogWarning("Repair path cleanup failed for {File}: {Error}", request.FilePath, cleanErr);
             }
 
-            if (TryWriteMetadataWithCalibre(outputPath, request.Metadata, request.FallbackTitle, logger, out var metaErr))
+            var (written, metaErr) = await CalibreMetadataUpdater.TryWriteMetadataWithCalibreAsync(outputPath, ebookMetaPathCfg, request.Metadata, request.FallbackTitle, logger, ct);
+            if (written)
             {
                 if (outputPath != request.FilePath && File.Exists(outputPath))
                     File.Copy(outputPath, request.FilePath, overwrite: true);
-                return Task.FromResult(new RepairAttemptResult(true, errors, gsRan));
+                return new RepairAttemptResult(true, errors, gsRan);
             }
 
             errors = Combine(errors, metaErr);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             errors = Combine(errors, ex.Message);
             logger.LogError(ex, "Repair attempt failed for {File}", request.FilePath);
@@ -142,7 +158,7 @@ public class EBookMetadataUpdater : IEBookMetadataUpdater
             MetadataTemp.Cleanup(workDir);
         }
 
-        return Task.FromResult(new RepairAttemptResult(false, errors, gsRan));
+        return new RepairAttemptResult(false, errors, gsRan);
     }
 
     public void WriteSidecarSummary(

@@ -14,6 +14,7 @@ try
         ("COMIC_DIR", "PdfLibrary:TypeFolders:Comic"),
         ("GOOGLE_BOOKS_KEY", "PdfLibrary:GoogleBooks:ApiKey"),
         ("COMIC_VINE_KEY", "PdfLibrary:ComicVine:ApiKey"),
+        ("API_KEY", "Auth:ApiKey"),
     };
     var overrides = envMap
         .Where(e => !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(e.Item1)))
@@ -24,8 +25,7 @@ try
 
     builder.ConfigureSerilog();
     builder.Services
-        .ConfigureServices()
-        .ConfigureHttpClients(builder.Configuration);
+        .ConfigureServices(builder.Configuration);
 
     var app = builder.Build();
     app.ConfigureMiddleware();

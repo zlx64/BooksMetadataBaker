@@ -2,13 +2,19 @@
 # Base runtime image
 # ---------------------------------------------------------
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS base
+ARG APP_UID=1000
+ARG APP_GID=1000
+# Calibre's dependencies may pre-create an 'app' group, so create idempotently
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ghostscript calibre \
-    && rm -rf /var/lib/apt/lists/* \
+    && rm -rf /var/lib/apt/lists/*
+RUN (getent group app >/dev/null || groupadd --gid ${APP_GID} app) \
+    && (getent passwd app >/dev/null || useradd --uid ${APP_UID} --gid app --create-home app) \
     && mkdir -p /data/books \
-    && chmod -R 0777 /data
+    && chown -R ${APP_UID}:${APP_GID} /data
 WORKDIR /app
-EXPOSE 8080 8081
+ENV ASPNETCORE_URLS=http://+:8080
+EXPOSE 8080
 # Configuration via environment variables (all optional, defaults in appsettings.json):
 #   ROOT_DIR           - base folder for books (default: /data/books, only needed if type dirs are relative)
 #   BOOK_DIR           - folder for Book type (default: "Novel" under ROOT_DIR)
@@ -17,10 +23,12 @@ EXPOSE 8080 8081
 #   COMIC_DIR          - folder for Comic type (default: "Comics")
 #   GOOGLE_BOOKS_KEY   - Google Books API key
 #   COMIC_VINE_KEY     - ComicVine API key
+#   API_KEY            - optional; when set, /api endpoints require the X-Api-Key header
 # Directory values can be relative (subfolder of ROOT_DIR) or absolute (e.g. /mnt/comics)
 # If all type dirs are absolute, ROOT_DIR is not needed
-ARG APP_UID
-USER ${APP_UID:-root}
+# Build args: APP_UID / APP_GID (default 1000:1000). Match the owner of host bind mounts:
+#   docker build --build-arg APP_UID=$(id -u) --build-arg APP_GID=$(id -g) .
+USER ${APP_UID}:${APP_GID}
 
 # ---------------------------------------------------------
 # Build stage

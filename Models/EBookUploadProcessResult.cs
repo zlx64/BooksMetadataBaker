@@ -8,6 +8,5 @@ public sealed record EBookUploadProcessResult(
     IDictionary<string, string> AppliedMetadata,
     bool DirectAttemptSuccess,
     bool RepairAttemptSuccess,
-    bool ForceStripAttemptSuccess,
     bool GhostscriptRan,
     EBookFormat Format);

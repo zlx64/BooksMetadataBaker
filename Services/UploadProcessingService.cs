@@ -1,4 +1,6 @@
 using System.Globalization;
+using System.Collections.Concurrent;
+using BooksMetadataBaker.Services.Helpers;
 using BooksMetadataBaker.Services.Types;
 
 namespace BooksMetadataBaker.Services;
@@ -30,89 +32,96 @@ public class UploadProcessingService(
         var baseFolder = isAbsolute
             ? typeFolderRaw
             : Path.Combine(root!, Sanitize(typeFolderRaw));
-        var titleFolder = Path.Combine(baseFolder, Sanitize(info.Title));
         var format = DetectFormat(file.FileName);
 
-        try
+        var titleFolder = ResolveTitleFolder(baseFolder, info.Title, out var pathError);
+        if (titleFolder is null)
         {
-            Directory.CreateDirectory(titleFolder);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Failed to create directory {Dir}", titleFolder);
-            return (CreateErrorResult("", $"Create directory failed: {ex.GetType().Name}: {ex.Message}", format, new Dictionary<string,string>()), new Dictionary<string,string>(), false, ex.Message);
-        }
-
-        if (!IsWritableDirectory(titleFolder))
-        {
-            logger.LogError("Directory not writable: {Dir}", titleFolder);
-            return (CreateErrorResult("", $"Directory not writable: {titleFolder}", format, new Dictionary<string,string>()), new Dictionary<string,string>(), false, $"Directory not writable: {titleFolder}");
+            logger.LogError("Rejected title that escapes library folder: {Title}", info.Title);
+            return (CreateErrorResult("", pathError ?? "Invalid title", format, new Dictionary<string,string>()), new Dictionary<string,string>(), false, pathError ?? "Invalid title");
         }
 
         var savePath = GetUniqueEBookPath(titleFolder, info.Title, file.FileName);
+        var fileLock = GetFileLock(Path.GetFullPath(savePath));
+        await fileLock.WaitAsync(ct);
         try
         {
-            if (File.Exists(savePath))
+            try
             {
-                logger.LogInformation("Overwriting existing file {Path}", savePath);
+                Directory.CreateDirectory(titleFolder);
             }
-            await using var fs = File.Create(savePath);
-            await file.CopyToAsync(fs, ct);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Failed writing uploaded file to {Path}", savePath);
-            return (CreateErrorResult(Path.GetFileName(savePath), $"Save file failed: {ex.GetType().Name}: {ex.Message}", format, new Dictionary<string,string>()), new Dictionary<string,string>(), false, ex.Message);
-        }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Failed to create directory {Dir}", titleFolder);
+                return (CreateErrorResult("", $"Create directory failed: {ex.GetType().Name}: {ex.Message}", format, new Dictionary<string,string>()), new Dictionary<string,string>(), false, ex.Message);
+            }
 
-        var baseName = Path.GetFileNameWithoutExtension(file.FileName);
-        var volMatch = Regex.Match(baseName, @"(\b|_)(?:v|vol|volume)[ _-]?(\d+(?:\.\d+)?)", RegexOptions.IgnoreCase);
-        if (!volMatch.Success)
-        {
-            var numMatch = Regex.Match(baseName, @"\b(\d{1,3}(?:\.\d+)?)\b");
-            volMatch = numMatch;
-        }
-        var volumeToken = volMatch.Success ? volMatch.Groups[2].Value : null;
-        var meta = await metadataService.FetchMetadataAsync(info.Title, info.Type, volumeToken, ct);
-        if (ct.IsCancellationRequested)
-            return (CreateCancelledResult(Path.GetFileName(savePath), format, meta), meta, true, null);
+            if (!IsWritableDirectory(titleFolder))
+            {
+                logger.LogError("Directory not writable: {Dir}", titleFolder);
+                return (CreateErrorResult("", $"Directory not writable: {titleFolder}", format, new Dictionary<string,string>()), new Dictionary<string,string>(), false, $"Directory not writable: {titleFolder}");
+            }
 
-        EBookUploadProcessResult result;
-        try
-        {
-            var attempts = await metadataUpdater.RunPipelineAsync(savePath, meta, info.Title, ct);
-            var success = attempts.Any(a => a.Success);
-            var directOk = attempts.Any(a => a is { Stage: EBookMetadataAttemptStage.Direct, Success: true });
-            var repairOk = attempts.Any(a => a is { Stage: EBookMetadataAttemptStage.Repair, Success: true });
-            var ghostscriptRan = attempts.Any(a => a.GhostscriptRan);
-            var errorMessage = CombineErrors(attempts);
-            metadataUpdater.WriteSidecarSummary(savePath, meta, info.Title, success, errorMessage, success, ghostscriptRan);
-            if (success) kavitaWriter.Write(savePath, meta, info.Title);
-            result = new(
-                File: Path.GetFileName(savePath),
-                Success: success,
-                ErrorMessage: string.IsNullOrWhiteSpace(errorMessage) ? null : errorMessage,
-                Attempts: attempts.Count,
-                AppliedMetadata: meta,
-                DirectAttemptSuccess: directOk,
-                RepairAttemptSuccess: repairOk,
-                ForceStripAttemptSuccess: false,
-                GhostscriptRan: ghostscriptRan,
-                Format: format);
-            if (!success && !string.IsNullOrWhiteSpace(errorMessage)) 
-                logger.LogWarning("Metadata update failed for {File}: {Errors}", savePath, errorMessage);
-        }
-        catch (OperationCanceledException)
-        {
-            result = CreateCancelledResult(Path.GetFileName(savePath), format, meta);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Failed updating metadata for {File}", savePath);
-            result = CreateErrorResult(Path.GetFileName(savePath), ex.Message, format, meta);
-        }
+            try
+            {
+                if (File.Exists(savePath))
+                {
+                    logger.LogInformation("Overwriting existing file {Path}", savePath);
+                }
+                await using var fs = File.Create(savePath);
+                await file.CopyToAsync(fs, ct);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Failed writing uploaded file to {Path}", savePath);
+                return (CreateErrorResult(Path.GetFileName(savePath), $"Save file failed: {ex.GetType().Name}: {ex.Message}", format, new Dictionary<string,string>()), new Dictionary<string,string>(), false, ex.Message);
+            }
 
-        return (result, meta, ct.IsCancellationRequested, null);
+            var volumeToken = MetadataHelpers.ExtractVolumeToken(file.FileName);
+            var meta = await metadataService.FetchMetadataAsync(info.Title, info.Type, volumeToken, ct);
+            if (ct.IsCancellationRequested)
+                return (CreateCancelledResult(Path.GetFileName(savePath), format, meta), meta, true, null);
+
+            EBookUploadProcessResult result;
+            try
+            {
+                var attempts = await metadataUpdater.RunPipelineAsync(savePath, meta, info.Title, ct);
+                var success = attempts.Any(a => a.Success);
+                var directOk = attempts.Any(a => a is { Stage: EBookMetadataAttemptStage.Direct, Success: true });
+                var repairOk = attempts.Any(a => a is { Stage: EBookMetadataAttemptStage.Repair, Success: true });
+                var ghostscriptRan = attempts.Any(a => a.GhostscriptRan);
+                var errorMessage = CombineErrors(attempts);
+                metadataUpdater.WriteSidecarSummary(savePath, meta, info.Title, success, errorMessage, success, ghostscriptRan);
+                if (success) await kavitaWriter.WriteAsync(savePath, meta, info.Title);
+                result = new(
+                    File: Path.GetFileName(savePath),
+                    Success: success,
+                    ErrorMessage: string.IsNullOrWhiteSpace(errorMessage) ? null : errorMessage,
+                    Attempts: attempts.Count,
+                    AppliedMetadata: meta,
+                    DirectAttemptSuccess: directOk,
+                    RepairAttemptSuccess: repairOk,
+                    GhostscriptRan: ghostscriptRan,
+                    Format: format);
+                if (!success && !string.IsNullOrWhiteSpace(errorMessage)) 
+                    logger.LogWarning("Metadata update failed for {File}: {Errors}", savePath, errorMessage);
+            }
+            catch (OperationCanceledException)
+            {
+                result = CreateCancelledResult(Path.GetFileName(savePath), format, meta);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Failed updating metadata for {File}", savePath);
+                result = CreateErrorResult(Path.GetFileName(savePath), ex.Message, format, meta);
+            }
+
+            return (result, meta, ct.IsCancellationRequested, null);
+        }
+        finally
+        {
+            fileLock.Release();
+        }
     }
 
     private static EBookFormat DetectFormat(string fileName)
@@ -127,10 +136,10 @@ public class UploadProcessingService(
     }
 
     private static EBookUploadProcessResult CreateErrorResult(string fileName, string errorMessage, EBookFormat format, IDictionary<string, string> meta) =>
-        new(fileName, false, errorMessage, 0, meta, false, false, false, false, format);
+        new(fileName, false, errorMessage, 0, meta, false, false, false, format);
 
     private static EBookUploadProcessResult CreateCancelledResult(string fileName, EBookFormat format, IDictionary<string, string> meta) =>
-        new(fileName, false, "Cancelled", 0, meta, false, false, false, false, format);
+        new(fileName, false, "Cancelled", 0, meta, false, false, false, format);
 
     private static bool IsWritableDirectory(string path)
     {
@@ -160,14 +169,38 @@ public class UploadProcessingService(
 
     private static string BuildVolumeName(string title, string numStr)
     {
-        if (numStr.Contains('.') && decimal.TryParse(numStr, out var dec)) 
+        if (numStr.Contains('.') && decimal.TryParse(numStr, NumberStyles.Any, CultureInfo.InvariantCulture, out var dec))
             numStr = dec.ToString(CultureInfo.InvariantCulture);
-        else if (int.TryParse(numStr, out var num)) 
-            numStr = num.ToString();
+        else if (int.TryParse(numStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var num))
+            numStr = num.ToString(CultureInfo.InvariantCulture);
         return $"{title} - Volume {numStr}";
     }
 
-    private static string Sanitize(string name)
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> FileLocks = new(StringComparer.OrdinalIgnoreCase);
+
+    private static SemaphoreSlim GetFileLock(string fullPath) =>
+        FileLocks.GetOrAdd(fullPath, _ => new SemaphoreSlim(1, 1));
+
+    /// <summary>
+    /// Resolves a user-supplied title into a folder inside baseFolder, rejecting
+    /// any result that would escape the library folder (path traversal).
+    /// </summary>
+    public static string? ResolveTitleFolder(string baseFolder, string title, out string? error)
+    {
+        error = null;
+        var baseFull = Path.GetFullPath(baseFolder);
+        var titleFolder = Path.GetFullPath(Path.Combine(baseFull, Sanitize(title)));
+        var prefix = baseFull.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        if (!titleFolder.StartsWith(prefix, comparison))
+        {
+            error = "Invalid title: resolves outside the library folder";
+            return null;
+        }
+        return titleFolder;
+    }
+
+    public static string Sanitize(string name)
     {
         foreach (var c in Path.GetInvalidFileNameChars()) 
             name = name.Replace(c, '_');

@@ -1,149 +1,285 @@
-/* BooksMetadataBaker PDF Upload UI Styles
+/* BooksMetadataBaker UI Styles
    --------------------------------------------------
+   Palette: "mahogany study" + "poets burgundy" (warm linen, deep espresso,
+   wine-burgundy accent) with "scholarly sage" status greens.
+   All colors flow from the tokens below — do not hardcode hex values
+   elsewhere in this file.
    Structure:
-   1. CSS Variables / Base
-   2. Layout Wrappers / Sections
-   3. Form Elements & Buttons
-   4. Upload List / Progress Bars
-   5. Results Table / Metadata Details
-   6. Utilities / Transitions / Responsive
+   1. CSS Variables (light + dark)
+   2. Base
+   3. Layout / Page header
+   4. Form Elements & Buttons (consistent input/button design)
+   5. Dropzone
+   6. Upload List / Progress / Pills / Spinner
+   7. Summary
+   8. Utilities / Transitions / Responsive
 */
 
-/* 1. Variables & Base -------------------------------------------------- */
+/* 1. Variables ---------------------------------------------------------- */
 :root {
-  --bg: #f8f5f0;
-  --panel: #fff;
-  --border: #ddd4c7;
-  --accent: #b8712b;
-  --accent-hover: #965b1e;
-  --text: #3e372e;
-  --soft: #7a7065;
-  --danger: #c0392b;
-  --success: #2e7d4b;
+  /* Surfaces (warm linen, deliberately deep — not washed out) */
+  --bg: #efe6da;
+  --panel: #f8f2e9;
+  --panel-soft: #e8dcc9;
+  --input-bg: #fcf8f1;
+  --border: #cbb59c;
+  --border-strong: #b39878;
+
+  /* Text (deep espresso ink, cocoa for secondary) */
+  --text: #261c18;
+  --soft: #5f4c40;
+
+  /* Accent (wine burgundy) */
+  --accent: #7a2f43;
+  --accent-hover: #632538;
+  --accent-soft: #ecd3da;
+
+  /* Primary button (burgundy leather) */
+  --btn-primary-bg: #7a2f43;
+  --btn-primary-hover: #632538;
+  --btn-primary-text: #f9f1f0;
+
+  /* Text on filled status colors */
+  --on-color: #ffffff;
+
+  /* Status (brick / sage / amber) */
+  --danger: #a8392b;
+  --success: #4a6741;
+  --warn: #7a5510;
+
+  /* Tracks & fills */
+  --bar-bg: #e2d4c0;
+
+  /* Radii (consistent scale) */
+  --radius-s: 8px;
+  --radius-m: 10px;
+  --radius-l: 14px;
+  --radius-xl: 18px;
 }
 
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* Night study: deep mahogany-brown, not flat black */
+    --bg: #1a1210;
+    --panel: #241a16;
+    --panel-soft: #2d211b;
+    --input-bg: #201713;
+    --border: #463529;
+    --border-strong: #6b5140;
+
+    --text: #f0e4d6;
+    --soft: #bfa892;
+
+    --accent: #d9a0ad;
+    --accent-hover: #e4b5c0;
+    --accent-soft: #3a2a2c;
+
+    /* Brightened wine so the button stands out on dark */
+    --btn-primary-bg: #8d3a50;
+    --btn-primary-hover: #a04560;
+    --btn-primary-text: #f9f1f0;
+
+    --on-color: #201414;
+
+    --danger: #e08a70;
+    --success: #93bd8a;
+    --warn: #d9b36a;
+
+    --bar-bg: #3d2f26;
+  }
+}
+
+/* 2. Base ---------------------------------------------------------------- */
 * { box-sizing: border-box; }
 html { -webkit-font-smoothing: antialiased; }
 body {
   margin: 0;
   font-family: Inter, system-ui, sans-serif;
+  font-size: 0.95rem;
+  line-height: 1.5;
   background: var(--bg);
   color: var(--text);
 }
 
-h1, h2, h3 { font-family: Merriweather, serif; }
+h1, h2, h3 { font-family: Merriweather, Georgia, serif; line-height: 1.25; }
 
 /* Hide [v-cloak] until Vue mounted */
 [v-cloak] { display: none; }
 
-/* 2. Layout -------------------------------------------------- */
+a { color: var(--accent); }
+a:hover { color: var(--accent-hover); }
+
+::selection { background: var(--accent-soft); }
+
+/* 3. Layout -------------------------------------------------------------- */
 .wrapper {
   max-width: 980px;
   margin: 0 auto;
-  padding: 1.4rem 1.1rem 2.6rem;
+  padding: 1.6rem 1.1rem 2.6rem;
 }
+
+.page-head { margin: .2rem 0 1.2rem; }
+.page-head h1 { margin: 0; font-size: 1.7rem; }
+.tagline { margin: .35rem 0 0; color: var(--soft); font-size: .9rem; max-width: 62ch; }
 
 .section {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 18px;
+  border-radius: var(--radius-xl);
   padding: 1.4rem 1.3rem 1.8rem;
-  margin-top: 0;
-  box-shadow: 0 4px 14px rgba(0,0,0,.05);
-}
-.section h2 {
-  margin: .2rem 0 1rem;
-  font-size: 1.55rem;
+  box-shadow: 0 4px 14px rgba(46, 42, 36, .06);
 }
 
 .grid {
   display: grid;
   gap: 1rem;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
 }
 
 .box {
-  background: #f3efe8;
+  background: var(--panel-soft);
   border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: .9rem .9rem 1rem;
+  border-radius: var(--radius-l);
+  padding: 1rem;
   display: flex;
   flex-direction: column;
-  gap: .5rem;
+  gap: .55rem;
 }
-.box label {
-  font-size: .6rem;
+.box label, .box .label {
+  font-size: .72rem;
   text-transform: uppercase;
   letter-spacing: .08em;
   font-weight: 600;
   color: var(--soft);
 }
+.optional { text-transform: none; letter-spacing: 0; font-weight: 400; opacity: .75; }
 
-/* 3. Form Elements & Buttons ------------------------------------------ */
-input[type=text], select, input[type=file] {
-  background: #fff;
+/* 4. Form Elements & Buttons ---------------------------------------------
+   One shared design for every input and every button. */
+/* :not([type=file]) also catches <input> without an explicit type attribute */
+input:not([type=file]), select {
+  width: 100%;
+  background: var(--input-bg);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius-m);
   padding: .55rem .7rem;
-  font-size: .8rem;
+  font-size: .9rem;
+  font-family: inherit;
   color: var(--text);
+  transition: border-color .15s ease;
 }
-input[type=file] { padding: .4rem .7rem; }
+input:not([type=file]):hover:not(:disabled),
+select:hover:not(:disabled) { border-color: var(--border-strong); }
+input::placeholder { color: var(--soft); opacity: .8; }
+select { cursor: pointer; }
 
+input:focus-visible, select:focus-visible, button:focus-visible,
+.dropzone:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.actions { display: flex; gap: .6rem; flex-wrap: wrap; margin-top: .35rem; }
+
+/* Primary action — leather brown (light) / parchment (dark) */
 button.primary {
-  background: var(--accent);
-  color: #fff;
-  border: none;
-  border-radius: 12px;
-  padding: .7rem 1.15rem;
-  font-size: .75rem;
+  background: var(--btn-primary-bg);
+  color: var(--btn-primary-text);
+  border: 1px solid transparent;
+  border-radius: var(--radius-m);
+  padding: .7rem 1.2rem;
+  font-size: .85rem;
   font-weight: 600;
+  font-family: inherit;
   cursor: pointer;
   letter-spacing: .5px;
   display: inline-flex;
   align-items: center;
-  gap: .5rem;
+  gap: .55rem;
   transition: background .15s ease;
 }
-button.primary:hover { background: var(--accent-hover); }
+button.primary:hover:not(:disabled) { background: var(--btn-primary-hover); }
 button.primary:disabled { opacity: .55; cursor: not-allowed; }
 
+/* Secondary action — outline, used by every non-primary button */
 button.secondary {
-  background: #eee3d6;
+  background: transparent;
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-m);
   padding: .7rem 1rem;
-  font-size: .7rem;
+  font-size: .8rem;
   font-weight: 500;
+  font-family: inherit;
   cursor: pointer;
-  transition: background .15s ease;
+  transition: background .15s ease, border-color .15s ease;
 }
-button.secondary:hover { background: #fff; }
+button.secondary:hover:not(:disabled) { background: var(--input-bg); border-color: var(--accent); }
 button.secondary:disabled { opacity: .55; cursor: not-allowed; }
+button.secondary.danger { color: var(--danger); border-color: var(--danger); }
 
-/* 4. Upload File List & Progress -------------------------------------- */
-#fileList {
-  display: grid;
-  gap: .45rem;
-  margin-top: .35rem;
-}
+.hint { margin: .2rem 0 0; font-size: .78rem; color: var(--soft); }
+.hint.warn { color: var(--warn); font-weight: 500; }
 
-.file-item {
-  background: #fff;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: .5rem .65rem .65rem;
+/* 5. Dropzone ------------------------------------------------------------- */
+.dropzone {
   display: flex;
   flex-direction: column;
-  gap: .35rem;
-  font-size: .65rem;
+  align-items: center;
+  justify-content: center;
+  gap: .4rem;
+  min-height: 110px;
+  padding: .9rem;
+  border: 2px dashed var(--border);
+  border-radius: var(--radius-m);
+  background: var(--input-bg);
+  cursor: pointer;
+  text-align: center;
+  transition: border-color .15s ease, background .15s ease;
 }
-.file-name { font-weight: 600; word-break: break-word; }
+.dropzone:hover { border-color: var(--accent); }
+.dropzone.drag { border-color: var(--accent); background: var(--accent-soft); }
+.dz-icon { width: 26px; height: 26px; fill: var(--soft); transition: fill .15s ease; }
+.dropzone.drag .dz-icon { fill: var(--accent); }
+.dz-text { font-size: .85rem; color: var(--soft); }
+.dz-text strong { color: var(--accent); font-weight: 600; }
+
+/* 6. Upload File List & Progress ------------------------------------------ */
+#fileList { display: grid; gap: .5rem; margin-top: .2rem; }
+
+.file-item {
+  background: var(--input-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  padding: .55rem .7rem .7rem;
+  display: flex;
+  flex-direction: column;
+  gap: .4rem;
+  font-size: .8rem;
+}
+.file-item.st-error { border-color: var(--danger); }
+.file-item.st-canceled { opacity: .75; }
+
+.file-top { display: flex; align-items: baseline; gap: .5rem; }
+.file-name { font-weight: 600; word-break: break-word; flex: 1 1 auto; min-width: 0; }
+.file-size { color: var(--soft); font-size: .75rem; white-space: nowrap; }
+
+.icon-btn {
+  border: none;
+  background: none;
+  color: var(--soft);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: .1rem .4rem;
+  border-radius: var(--radius-s);
+  transition: color .15s ease, background .15s ease;
+}
+.icon-btn:hover { color: var(--danger); background: var(--accent-soft); }
 
 .bar-wrap {
-  height: 5px;
-  background: #f0e5d8;
+  height: 6px;
+  background: var(--bar-bg);
   border-radius: 4px;
   overflow: hidden;
 }
@@ -151,92 +287,108 @@ button.secondary:disabled { opacity: .55; cursor: not-allowed; }
   height: 100%;
   width: 0;
   background: var(--accent);
+  border-radius: 4px;
   transition: width .25s ease;
 }
-
-/* 5. Results / Summary / Metadata ------------------------------------- */
-.table-wrap { overflow-x: auto; margin-top: .6rem; }
-
-.results-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: .65rem;
+.file-item.st-success .bar { background: var(--success); }
+.file-item.st-error .bar { background: var(--danger); }
+.bar.indeterminate { width: 40%; animation: slide 1.2s ease-in-out infinite; }
+@keyframes slide {
+  0% { margin-left: -40%; }
+  100% { margin-left: 100%; }
 }
-.results-table th, .results-table td {
-  padding: .5rem .55rem;
-  border-bottom: 1px solid var(--border);
-  text-align: left;
-  vertical-align: top;
-}
-.results-table th {
-  font-size: .55rem;
-  text-transform: uppercase;
-  letter-spacing: .08em;
+
+.file-meta { display: flex; align-items: center; gap: .6rem; font-size: .78rem; }
+.pct { color: var(--soft); }
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  border-radius: 999px;
+  padding: .15rem .6rem;
+  font-size: .72rem;
+  font-weight: 600;
+  background: var(--bar-bg);
   color: var(--soft);
-  font-weight: 600;
 }
+.pill-success { background: var(--success); color: var(--on-color); }
+.pill-error { background: var(--danger); color: var(--on-color); }
+.pill-canceled { background: var(--bar-bg); color: var(--soft); }
 
-.status-ok { color: var(--success); font-weight: 600; }
-.status-fail { color: var(--danger); font-weight: 600; }
+.file-error { color: var(--danger); font-size: .78rem; word-break: break-word; }
 
-.details-btn {
-  background: none;
-  border: none;
-  color: var(--accent);
-  cursor: pointer;
-  font-size: .6rem;
-  font-weight: 600;
-  letter-spacing: .06em;
-  text-transform: uppercase;
-  padding: 0;
+/* Spinner — inherits color from its context (button, pill, ...) */
+.spinner {
+  width: 1rem;
+  height: 1rem;
+  border: 2px solid color-mix(in srgb, currentColor 30%, transparent);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  display: inline-block;
+  animation: spin .8s linear infinite;
 }
-.details-btn:hover { text-decoration: underline; }
+.spinner.small { width: .7rem; height: .7rem; }
+@keyframes spin { to { transform: rotate(360deg); } }
 
-.meta-kv {
-  display: grid;
-  grid-template-columns: 120px 1fr;
-  gap: .25rem .75rem;
-  font-size: .55rem;
-  margin-top: .25rem;
-}
-
+/* 7. Summary --------------------------------------------------------------- */
 .summary {
-  margin-top: .8rem;
-  background: #f3efe8;
+  margin-top: 1.4rem;
+  background: var(--panel-soft);
   border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: .8rem 1rem;
-  font-size: .65rem;
+  border-radius: var(--radius-l);
+  padding: .9rem 1.1rem;
   display: flex;
+  flex-direction: column;
+  gap: .7rem;
+}
+.overall-label { font-size: .85rem; margin-bottom: .35rem; }
+.overall .bar-wrap { height: 8px; }
+.summary-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: .8rem;
   flex-wrap: wrap;
-  gap: 1.1rem;
 }
-.summary span { display: flex; align-items: center; gap: .35rem; }
-
-.badge-small {
-  background: var(--accent);
-  color: #fff;
-  border-radius: 8px;
-  padding: .15rem .55rem;
-  font-size: .55rem;
-  font-weight: 600;
-  letter-spacing: .05em;
-}
+.summary-stats { display: flex; flex-wrap: wrap; gap: 1.1rem; font-size: .82rem; }
+.stat strong { font-weight: 700; }
+.stat.ok { color: var(--success); }
+.stat.fail { color: var(--danger); }
+.summary-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
 
 footer {
   text-align: center;
   padding: 2.2rem .6rem 1.8rem;
-  font-size: .6rem;
+  font-size: .78rem;
   color: var(--soft);
 }
 
-/* 6. Transitions & Responsive ----------------------------------------- */
+/* 8. Utilities / Transitions / Responsive ---------------------------------- */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .fade-enter-active, .fade-leave-active { transition: opacity .25s ease; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
-
-.error-item { border-color: var(--danger); }
+.fade-move { transition: transform .25s ease; }
 
 @media (max-width: 650px) {
-  .section { padding: 1.2rem 1rem 1.5rem; }
-  .meta-kv { grid-template-columns: 90px 1fr; }
+  .section { padding: 1.1rem 1rem 1.4rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
 }
