@@ -76,6 +76,10 @@ public class AniListService(HttpClient http, ILogger<AniListService> logger)
     {
         var dict = new Dictionary<string, string>();
 
+        // No match: data.Media is null. Return empty so the caller can try the
+        // next search variant instead of stopping with only {Source: AniList}.
+        if (media.ValueKind != JsonValueKind.Object) return dict;
+
         if (media.TryGetProperty("title", out var titleObj))
         {
             if (titleObj.TryGetProperty("english", out var eng) && !string.IsNullOrWhiteSpace(eng.GetString()))

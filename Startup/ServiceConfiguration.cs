@@ -21,13 +21,19 @@ public static class ServiceConfiguration
         // Caching
         services.AddMemoryCache();
 
-        // Metadata sources (external API integrations)
-        services.AddHttpClient<IMetadataSource, AniListService>(c =>
+        // Metadata sources (external API integrations).
+        // Each service must be its own named typed client: AddHttpClient<TClient, TImpl>
+        // keys the HttpClient config by TClient, so registering all three under
+        // IMetadataSource would make the last BaseAddress win for every source.
+        services.AddHttpClient<AniListService>(c =>
             c.BaseAddress = new Uri(GetBaseUrl(configuration, "PdfLibrary:AniList:BaseUrl", "https://graphql.anilist.co")));
-        services.AddHttpClient<IMetadataSource, GoogleBooksService>(c =>
+        services.AddHttpClient<GoogleBooksService>(c =>
             c.BaseAddress = new Uri(GetBaseUrl(configuration, "PdfLibrary:GoogleBooks:BaseUrl", "https://www.googleapis.com/books/v1/volumes")));
-        services.AddHttpClient<IMetadataSource, ComicVineService>(c =>
+        services.AddHttpClient<ComicVineService>(c =>
             c.BaseAddress = new Uri(GetBaseUrl(configuration, "PdfLibrary:ComicVine:BaseUrl", "https://comicvine.gamespot.com/api")));
+        services.AddScoped<IMetadataSource>(sp => sp.GetRequiredService<AniListService>());
+        services.AddScoped<IMetadataSource>(sp => sp.GetRequiredService<GoogleBooksService>());
+        services.AddScoped<IMetadataSource>(sp => sp.GetRequiredService<ComicVineService>());
 
         // Rate limiting
         services.AddRateLimiter(options =>

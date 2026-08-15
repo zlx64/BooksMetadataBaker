@@ -22,22 +22,31 @@ public class GoogleBooksService(
 
         try
         {
-            var url = $"?q={Uri.EscapeDataString(queryExpression)}&maxResults=3&printType=books&projection=full" + (string.IsNullOrWhiteSpace(langRestrict)?"":$"&langRestrict={langRestrict}") + (string.IsNullOrWhiteSpace(apiKey)?"":$"&key={apiKey}");
+            var url = $"?q={Uri.EscapeDataString(queryExpression)}&maxResults=5&printType=books&projection=full" + (string.IsNullOrWhiteSpace(langRestrict)?"":$"&langRestrict={langRestrict}") + (string.IsNullOrWhiteSpace(apiKey)?"":$"&key={apiKey}");
             logger.LogInformation("GoogleBooks request for {Title} Type={Type} Url={Url} KeyPresent={KeyPresent}", title, type, string.IsNullOrWhiteSpace(apiKey) ? url : url.Replace($"&key={apiKey}", "&key=***"), !string.IsNullOrWhiteSpace(apiKey));
-            using var resp = await http.GetAsync(url, ct);
+
+            // Google's backend intermittently returns 503/429; retry transient failures.
+            HttpResponseMessage resp;
+            for (var attempt = 1; ; attempt++)
+            {
+                resp = await http.GetAsync(url, ct);
+                var status = (int)resp.StatusCode;
+                var transient = status is 429 or 500 or 502 or 503;
+                if (!transient || attempt >= 3) break;
+                resp.Dispose();
+                logger.LogWarning("GoogleBooks transient HTTP {Status} for {Title}, retry {Attempt}/2", status, title, attempt);
+                await Task.Delay(TimeSpan.FromSeconds(attempt * 2), ct);
+            }
+            using (resp)
+            {
             resp.EnsureSuccessStatusCode();
             await using var stream = await resp.Content.ReadAsStreamAsync(ct);
             using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
             var items = doc.RootElement.TryGetProperty("items", out var itemsEl) ? itemsEl : default;
             if (items.ValueKind != JsonValueKind.Array || items.GetArrayLength() == 0) return new Dictionary<string,string>();
 
-            // Pick first item having description
-            var chosen = items[0];
-            foreach (var it in items.EnumerateArray())
-            {
-                if (it.TryGetProperty("volumeInfo", out var vi) && vi.TryGetProperty("description", out var d) && !string.IsNullOrWhiteSpace(d.GetString()))
-                { chosen = it; break; }
-            }
+            // Prefer an item whose title matches the searched title, then one with a description.
+            var chosen = PickBestItem(items, cleaned);
             var volumeInfo = chosen.GetProperty("volumeInfo");
             var dict = new Dictionary<string,string>();
             if (volumeInfo.TryGetProperty("title", out var ti)) dict["Title"] = ti.GetString() ?? string.Empty;
@@ -68,12 +77,50 @@ public class GoogleBooksService(
             if (volumeInfo.TryGetProperty("infoLink", out var link)) dict["SourceUrl"] = link.GetString() ?? string.Empty;
             dict["Source"] = "GoogleBooks";
             return dict;
+            }
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "GoogleBooks fetch failed for {Title} Type={Type}", title, type);
+            if (ex is HttpRequestException { StatusCode: System.Net.HttpStatusCode.TooManyRequests } && string.IsNullOrWhiteSpace(apiKey))
+                logger.LogWarning(
+                    "GoogleBooks keyless quota exhausted (HTTP 429) for {Title}. Set GOOGLE_BOOKS_KEY to use a dedicated quota.", title);
+            else
+                logger.LogWarning(ex, "GoogleBooks fetch failed for {Title} Type={Type}", title, type);
             return new Dictionary<string,string>();
         }
     }
 
+    /// <summary>
+    /// Scores candidates: title starting with the searched title (+4), containing it (+2),
+    /// having a description (+1). Falls back to the first item with a description, then items[0].
+    /// </summary>
+    private static JsonElement PickBestItem(JsonElement items, string searchTitle)
+    {
+        var needle = Normalize(searchTitle);
+        var chosen = items[0];
+        var bestScore = -1;
+        foreach (var it in items.EnumerateArray())
+        {
+            if (!it.TryGetProperty("volumeInfo", out var vi)) continue;
+            var itemTitle = vi.TryGetProperty("title", out var te) ? te.GetString() ?? string.Empty : string.Empty;
+            var hasDesc = vi.TryGetProperty("description", out var d) && !string.IsNullOrWhiteSpace(d.GetString());
+            var score = 0;
+            var norm = Normalize(itemTitle);
+            if (needle.Length > 0)
+            {
+                if (norm.StartsWith(needle, StringComparison.Ordinal)) score += 4;
+                else if (norm.Contains(needle, StringComparison.Ordinal)) score += 2;
+            }
+            if (hasDesc) score += 1;
+            if (score > bestScore)
+            {
+                bestScore = score;
+                chosen = it;
+            }
+        }
+        return chosen;
+
+        static string Normalize(string s) =>
+            string.Join(' ', s.ToLowerInvariant().Split(' ', StringSplitOptions.RemoveEmptyEntries));
+    }
 }
