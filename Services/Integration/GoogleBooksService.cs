@@ -23,7 +23,7 @@ public class GoogleBooksService(
         try
         {
             var url = $"?q={Uri.EscapeDataString(queryExpression)}&maxResults=3&printType=books&projection=full" + (string.IsNullOrWhiteSpace(langRestrict)?"":$"&langRestrict={langRestrict}") + (string.IsNullOrWhiteSpace(apiKey)?"":$"&key={apiKey}");
-            logger.LogInformation("GoogleBooks request for {Title} Type={Type} Url={Url}", title, type, url);
+            logger.LogInformation("GoogleBooks request for {Title} Type={Type} Url={Url} KeyPresent={KeyPresent}", title, type, string.IsNullOrWhiteSpace(apiKey) ? url : url.Replace($"&key={apiKey}", "&key=***"), !string.IsNullOrWhiteSpace(apiKey));
             using var resp = await http.GetAsync(url, ct);
             resp.EnsureSuccessStatusCode();
             await using var stream = await resp.Content.ReadAsStreamAsync(ct);

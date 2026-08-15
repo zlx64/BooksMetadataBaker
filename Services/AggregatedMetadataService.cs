@@ -26,33 +26,10 @@ public class AggregatedMetadataService(
     {
         var results = await Task.WhenAll(orderedSources.Select(s => s.TryFetchAsync(searchTitle, type, ct)));
 
-        // Prefer a source whose returned Title exactly matches the searched title.
-        var exactIndex = -1;
-        for (var i = 0; i < results.Length; i++)
-        {
-            if (results[i].TryGetValue("Title", out var t) && t.Equals(searchTitle, StringComparison.OrdinalIgnoreCase))
-            {
-                exactIndex = i;
-                break;
-            }
-        }
-
         var merged = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        var order = new List<int>(results.Length);
-        if (exactIndex >= 0)
+        foreach (var dict in results)
         {
-            order.Add(exactIndex);
-            for (var i = 0; i < results.Length; i++)
-                if (i != exactIndex) order.Add(i);
-        }
-        else
-        {
-            for (var i = 0; i < results.Length; i++) order.Add(i);
-        }
-
-        foreach (var i in order)
-        {
-            foreach (var kv in results[i])
+            foreach (var kv in dict)
             {
                 if (!merged.ContainsKey(kv.Key) && !string.IsNullOrWhiteSpace(kv.Value))
                     merged[kv.Key] = kv.Value;
@@ -68,7 +45,8 @@ public class AggregatedMetadataService(
         return sources
             .OrderBy(s =>
             {
-                var idx = Array.IndexOf(order, s.GetType().Name);
+                var name = s.GetType().Name;
+                var idx = Array.FindIndex(order, o => name.StartsWith(o, StringComparison.OrdinalIgnoreCase));
                 return idx == -1 ? int.MaxValue : idx;
             })
             .ToList();

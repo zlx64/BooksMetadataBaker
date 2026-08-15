@@ -200,25 +200,14 @@ public class UploadProcessingService(
         return titleFolder;
     }
 
-    private static readonly HashSet<char> ForbiddenFileNameChars = CreateForbiddenFileNameChars();
-
-    private static HashSet<char> CreateForbiddenFileNameChars()
-    {
-        var set = new HashSet<char>("<>:\"|?*/\\");
-        for (var c = 0; c < 32; c++)
-            set.Add((char)c);
-        return set;
-    }
-
     public static string Sanitize(string name)
     {
-        // Path.GetInvalidFileNameChars() is platform-dependent (on Linux only '/'
-        // and NUL), so use a fixed superset: Windows-invalid chars, both directory
-        // separators, and C0 control chars. Behavior is identical on every OS.
-        var sb = new StringBuilder(name.Length);
-        foreach (var c in name)
-            sb.Append(ForbiddenFileNameChars.Contains(c) ? '_' : c);
-        return sb.ToString();
+        // Platform-native invalid chars (keeps Linux titles like "Dune: Part Two"
+        // intact). Path traversal is still blocked by ResolveTitleFolder's
+        // containment check.
+        foreach (var c in Path.GetInvalidFileNameChars())
+            name = name.Replace(c, '_');
+        return name;
     }
 
     private static string CombineErrors(IEnumerable<EBookMetadataAttemptResult> attempts)

@@ -68,8 +68,11 @@ public class AggregatedMetadataServiceTests
     }
 
     [Fact]
-    public async Task Merge_ExactTitleMatchTakesPriority()
+    public async Task Merge_SourceOrderWinsOverExactTitleMatch()
     {
+        // Regression: an exact Title match in a later source must not steal
+        // priority from the first source in the configured order (AniList data
+        // must keep winning over a same-named Google Books hit for LightNovels).
         var service = CreateService(new IMetadataSource[]
         {
             new SourceA(new() { ["Title"] = "Different Title", ["Description"] = "A desc" }),
@@ -78,8 +81,27 @@ public class AggregatedMetadataServiceTests
 
         var meta = await service.FetchMetadataAsync("My Book", BookType.Book);
 
-        Assert.Equal("B desc", meta["Description"]);
+        Assert.Equal("Different Title", meta["Title"]);
+        Assert.Equal("A desc", meta["Description"]);
         Assert.Equal("B Pub", meta["Publisher"]);
+    }
+
+    [Fact]
+    public async Task Merge_SourceOrderConfigMatchesClassNamesByPrefix()
+    {
+        // Production sources are named AniListService/GoogleBooksService/ComicVineService,
+        // while config uses short names (AniList/GoogleBooks/ComicVine).
+        var service = CreateService(
+            new IMetadataSource[]
+            {
+                new SourceA(new() { ["Title"] = "From A" }),
+                new SourceB(new() { ["Title"] = "From B" })
+            },
+            new Dictionary<string, string?> { ["Tools:SourceOrder"] = "sourceb, SOURCEA" });
+
+        var meta = await service.FetchMetadataAsync("Some Book", BookType.Book);
+
+        Assert.Equal("From B", meta["Title"]);
     }
 
     [Fact]

@@ -50,10 +50,20 @@ public class UploadProcessingServiceTests
     public void Sanitize_ReplacesInvalidCharacters()
     {
         var sanitized = UploadProcessingService.Sanitize("a<b>c:d\"e/f");
-        Assert.DoesNotContain('<', sanitized);
-        Assert.DoesNotContain('>', sanitized);
-        Assert.DoesNotContain(':', sanitized);
-        Assert.DoesNotContain('"', sanitized);
         Assert.DoesNotContain('/', sanitized);
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.DoesNotContain('<', sanitized);
+            Assert.DoesNotContain('>', sanitized);
+            Assert.DoesNotContain(':', sanitized);
+            Assert.DoesNotContain('"', sanitized);
+        }
+        else
+        {
+            // On Linux Path.GetInvalidFileNameChars() is only '/' and NUL, so
+            // Windows-specific chars are preserved in titles (pre-refactor behavior).
+            Assert.Contains(':', sanitized);
+            Assert.Contains('<', sanitized);
+        }
     }
 }
