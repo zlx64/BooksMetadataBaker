@@ -200,11 +200,25 @@ public class UploadProcessingService(
         return titleFolder;
     }
 
+    private static readonly HashSet<char> ForbiddenFileNameChars = CreateForbiddenFileNameChars();
+
+    private static HashSet<char> CreateForbiddenFileNameChars()
+    {
+        var set = new HashSet<char>("<>:\"|?*/\\");
+        for (var c = 0; c < 32; c++)
+            set.Add((char)c);
+        return set;
+    }
+
     public static string Sanitize(string name)
     {
-        foreach (var c in Path.GetInvalidFileNameChars()) 
-            name = name.Replace(c, '_');
-        return name;
+        // Path.GetInvalidFileNameChars() is platform-dependent (on Linux only '/'
+        // and NUL), so use a fixed superset: Windows-invalid chars, both directory
+        // separators, and C0 control chars. Behavior is identical on every OS.
+        var sb = new StringBuilder(name.Length);
+        foreach (var c in name)
+            sb.Append(ForbiddenFileNameChars.Contains(c) ? '_' : c);
+        return sb.ToString();
     }
 
     private static string CombineErrors(IEnumerable<EBookMetadataAttemptResult> attempts)

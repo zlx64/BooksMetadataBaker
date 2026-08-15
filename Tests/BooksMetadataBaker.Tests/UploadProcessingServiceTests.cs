@@ -37,9 +37,9 @@ public class UploadProcessingServiceTests
     [InlineData("../library-evil")]
     public void ResolveTitleFolder_SlashTraversalNeverEscapesBaseFolder(string title)
     {
-        // On Windows '/' is an invalid filename char, so Sanitize neutralizes it and
-        // the result must stay inside the base folder.
-        // On Linux '/' is valid, so the containment check must reject it outright.
+        // Sanitize neutralizes '/' on every platform; the containment check in
+        // ResolveTitleFolder is the backstop that keeps the result inside the
+        // base folder either way.
         var result = UploadProcessingService.ResolveTitleFolder(BaseFolder, title, out _);
 
         if (result is not null)
