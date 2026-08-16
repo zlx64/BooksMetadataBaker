@@ -39,10 +39,23 @@ public static class ServiceConfiguration
         services.AddRateLimiter(options =>
         {
             options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+            var windowSeconds = int.Parse(configuration["RateLimiting:UploadWindowSeconds"] ?? "60", NumberStyles.Integer, CultureInfo.InvariantCulture);
+
+            // Rejections carry Retry-After (seconds until the fixed window resets)
+            // plus a JSON body so clients can back off and retry automatically.
+            options.OnRejected = async (ctx, ct) =>
+            {
+                var response = ctx.HttpContext.Response;
+                response.StatusCode = StatusCodes.Status429TooManyRequests;
+                var remaining = windowSeconds - (int)(DateTimeOffset.UtcNow.ToUnixTimeSeconds() % windowSeconds);
+                response.Headers.RetryAfter = remaining.ToString(CultureInfo.InvariantCulture);
+                await response.WriteAsJsonAsync(new { error = "Rate limit exceeded", retryAfterSeconds = remaining }, ct);
+            };
+
             options.AddFixedWindowLimiter("upload", o =>
             {
                 o.PermitLimit = int.Parse(configuration["RateLimiting:UploadPermitLimit"] ?? "10", NumberStyles.Integer, CultureInfo.InvariantCulture);
-                o.Window = TimeSpan.FromSeconds(int.Parse(configuration["RateLimiting:UploadWindowSeconds"] ?? "60", NumberStyles.Integer, CultureInfo.InvariantCulture));
+                o.Window = TimeSpan.FromSeconds(windowSeconds);
                 o.QueueLimit = 0;
             });
         });

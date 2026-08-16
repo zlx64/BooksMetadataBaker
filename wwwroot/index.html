@@ -1,112 +1,265 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="auto">
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Books Metadata Baker — eBook Upload</title>
     <meta name="description" content="Upload PDF and EPUB files, apply metadata with Calibre, and write Kavita-ready sidecars." />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%237a2f43' d='M5 2h8l6 6v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z'/%3E%3Cpath fill='%23efe6da' d='M13 2v6h6'/%3E%3C/svg%3E" />
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Merriweather:wght@400;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/css/app.css" />
 </head>
 <body>
-    <div id="app" class="wrapper" v-cloak>
-        <header class="page-head">
-            <h1>Books Metadata Baker</h1>
-            <p class="tagline">Upload PDF &amp; EPUB files. Metadata is fetched, applied with Calibre, and Kavita-ready sidecars are written.</p>
+    <div id="app" v-cloak
+         @dragenter.prevent="dragEnter" @dragover.prevent @dragleave="dragLeave" @drop.prevent="onDrop">
+        <!-- Whole-window drop overlay -->
+        <div class="drop-overlay" v-show="windowDrag" aria-hidden="true">
+            <div class="drop-overlay-box">
+                <svg viewBox="0 0 24 24" class="drop-overlay-icon"><path d="M12 3l5 5h-3v6h-4V8H7l5-5zM5 19h14v2H5z"/></svg>
+                <p class="drop-overlay-title">Drop PDF or EPUB files</p>
+                <p class="drop-overlay-sub">They’ll be added to the queue</p>
+            </div>
+        </div>
+
+        <header class="topbar">
+            <div class="topbar-inner">
+                <div class="brand">
+                    <span class="brand-mark" aria-hidden="true">
+                        <svg viewBox="0 0 24 24"><path d="M5 2h8l6 6v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z"/><path d="M13 2v6h6" fill="var(--panel)"/></svg>
+                    </span>
+                    <span class="brand-text">
+                        <span class="brand-name">Books Metadata Baker</span>
+                        <span class="brand-sub">eBook metadata, baked in</span>
+                    </span>
+                </div>
+                <div class="topbar-actions">
+                    <a class="ghost-link" href="https://github.com/zlx64/BooksMetadataBaker" target="_blank" rel="noopener">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2A10 10 0 0 0 2 12c0 4.42 2.87 8.17 6.84 9.5.5.08.66-.23.66-.5v-1.69c-2.77.6-3.36-1.34-3.36-1.34-.46-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.87 1.52 2.34 1.07 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.92 0-1.11.38-2 1.03-2.71-.1-.25-.45-1.29.1-2.64 0 0 .84-.27 2.75 1.02a9.58 9.58 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.35.2 2.39.1 2.64.65.71 1.03 1.6 1.03 2.71 0 3.82-2.34 4.66-4.57 4.91.36.31.68.92.68 1.85V21c0 .27.16.59.67.5A10 10 0 0 0 22 12 10 10 0 0 0 12 2z"/></svg>
+                        GitHub
+                    </a>
+                    <button type="button" class="theme-btn" @click="cycleTheme" :title="'Theme: ' + theme" :aria-label="'Color theme: ' + theme + '. Click to change.'">
+                        <svg v-if="theme === 'light'" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4m11.4-11.4 1.4-1.4"/></svg>
+                        <svg v-else-if="theme === 'dark'" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+                        <svg v-else viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 3v18" /><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none" opacity=".35"/></svg>
+                    </button>
+                </div>
+            </div>
         </header>
 
-        <section class="section" id="upload">
-            <form @submit.prevent="submit" @reset="reset">
-                <div class="grid">
-                    <div class="box">
-                        <label for="title">Title</label>
-                        <input id="title" type="text" v-model.trim="title" name="Title" required placeholder="Series or book title" autocomplete="off" />
-                        <label for="type">Type</label>
-                        <select id="type" v-model="type" name="Type">
-                            <option value="Book">Book</option>
-                            <option value="Comic">Comic</option>
-                            <option value="LightNovel" selected>Light Novel</option>
-                            <option value="Manga">Manga</option>
-                        </select>
-                        <template v-if="authRequired">
-                            <label for="apikey">API key</label>
-                            <input id="apikey" v-model="apiKey" @input="saveApiKey" type="password" name="ApiKey" autocomplete="new-password" placeholder="Server API key" />
-                        </template>
-                        <div class="actions">
-                            <button type="submit" class="primary" :disabled="busy || !canSubmit">
-                                <span v-if="busy" class="spinner" aria-hidden="true"></span>
-                                {{ submitLabel }}
-                            </button>
-                            <button type="reset" class="secondary" :disabled="busy">Reset</button>
-                            <button v-if="busy" type="button" class="secondary danger" @click="cancelAll">Cancel</button>
-                        </div>
-                        <p class="hint">Max 500 MB per file. Files process in parallel (up to 4 at once); progress completes only after metadata processing finishes.</p>
-                    </div>
-                    <div class="box">
-                        <span class="label" id="filesLabel">eBook files (PDF or EPUB)</span>
-                        <label for="files" class="dropzone" :class="{drag: dragging}"
-                               aria-labelledby="filesLabel"
-                               @dragenter.prevent="dragEnter" @dragover.prevent @dragleave="dragLeave" @drop.prevent="onDrop">
-                            <input id="files" ref="filesInput" class="sr-only" type="file" accept=".pdf,.epub" multiple @change="onFiles" />
-                            <svg class="dz-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l5 5h-3v6h-4V8H7l5-5zM5 19h14v2H5z"/></svg>
-                            <span class="dz-text" v-if="!pendingFiles.length">Drag &amp; drop files here, or <strong>browse</strong></span>
-                            <span class="dz-text" v-else>{{ pendingFiles.length }} file{{ pendingFiles.length > 1 ? 's' : '' }} selected — click to add more</span>
-                        </label>
-                        <p v-if="ignoredFiles.length" class="hint warn" role="alert">
-                            Ignored {{ ignoredFiles.length }} unsupported file{{ ignoredFiles.length > 1 ? 's' : '' }}: {{ ignoredFiles.slice(0, 5).join(', ') }}{{ ignoredFiles.length > 5 ? '…' : '' }}
-                        </p>
-                        <div id="fileList" aria-live="polite">
-                            <transition-group name="fade" tag="div">
-                                <div class="file-item" v-for="f in pendingFiles" :key="f.uid" :class="'st-' + f.status">
-                                    <div class="file-top">
-                                        <span class="file-name" :title="f.name">{{ f.name }}</span>
-                                        <span class="file-size">{{ formatSize(f.size) }}</span>
-                                        <button v-if="!busy" type="button" class="icon-btn" :title="'Remove ' + f.name" aria-label="Remove file" @click="removeFile(f)">&times;</button>
-                                    </div>
-                                    <div class="bar-wrap" role="progressbar" aria-valuemin="0" aria-valuemax="100" :aria-valuenow="f.progress">
-                                        <div class="bar" :class="{indeterminate: f.status === 'processing'}" :style="f.status === 'processing' ? '' : 'width:' + f.progress + '%'"></div>
-                                    </div>
-                                    <div class="file-meta">
-                                        <span class="pill" :class="'pill-' + f.status">
-                                            <span v-if="f.status === 'uploading' || f.status === 'processing'" class="spinner small" aria-hidden="true"></span>
-                                            {{ statusLabel(f.status) }}
-                                        </span>
-                                        <span v-if="f.status === 'uploading'" class="pct">{{ f.progress }}%</span>
-                                        <span v-if="f.attempts > 1" class="pct">{{ f.attempts }} attempts</span>
-                                    </div>
-                                    <div v-if="f.error" class="file-error" role="alert">{{ f.error }}</div>
-                                </div>
-                            </transition-group>
-                        </div>
-                    </div>
-                </div>
-            </form>
+        <main class="main">
+            <section class="hero">
+                <h1>Bake your eBooks</h1>
+                <p class="lede">Upload PDF or EPUB files. Books Metadata Baker fetches metadata from
+                    <strong>AniList</strong>, <strong>Google Books</strong> and <strong>ComicVine</strong>,
+                    embeds it with Calibre, repairs broken PDFs metadata with Ghostscript, and writes
+                    Kavita-ready sidecars.</p>
+            </section>
 
-            <transition name="fade">
-                <div class="summary" v-if="pendingFiles.length">
-                    <div class="overall">
-                        <div class="overall-label"><strong>{{ doneCount }}</strong> of {{ pendingFiles.length }} finished</div>
-                        <div class="bar-wrap"><div class="bar" :style="{width: overallPct + '%'}"></div></div>
+            <!-- Step 1 — Book details -->
+            <section class="card" aria-labelledby="step1-h">
+                <div class="card-head">
+                    <span class="step-num" aria-hidden="true">1</span>
+                    <h2 id="step1-h">Book details</h2>
+                </div>
+
+                <form class="details-form" @submit.prevent="start" novalidate>
+                    <div class="field">
+                        <label for="title">Title</label>
+                        <input id="title" ref="titleInput" type="text" v-model.trim="title"
+                               :class="{invalid: titleTouched && !title}"
+                               placeholder="Series or book title, e.g. The Saga of Tanya the Evil"
+                               autocomplete="off" spellcheck="false"
+                               @blur="titleTouched = true" />
+                        <p v-if="titleTouched && !title" class="field-err" role="alert">Title is required.</p>
+                        <p v-else class="field-hint">
+                            Files are saved into the <strong>{{ typeLabel }}</strong> folder as
+                            <code>{{ title ? predictedName('sample 1.pdf', title) : 'Title - Volume N.pdf' }}</code>.
+                        </p>
                     </div>
-                    <div class="summary-row">
-                        <div class="summary-stats">
-                            <span class="stat"><strong>Total</strong> {{ pendingFiles.length }}</span>
-                            <span class="stat ok"><strong>Success</strong> {{ successCount }}</span>
-                            <span class="stat fail" v-if="failCount"><strong>Failed</strong> {{ failCount }}</span>
-                            <span class="stat" v-if="hasMetadata"><strong>Metadata</strong> {{ metadataCount }} fields</span>
+
+                    <fieldset class="type-picker">
+                        <legend class="sr-only">Book type</legend>
+                        <label v-for="t in types" :key="t.value"
+                               class="type-opt" :class="{active: type === t.value}">
+                            <input class="sr-only" type="radio" name="type" :value="t.value" v-model="type" @change="saveType" />
+                            <span class="type-icon" v-html="t.icon" aria-hidden="true"></span>
+                            <span class="type-name">{{ t.label }}</span>
+                        </label>
+                    </fieldset>
+
+                    <div class="field" v-if="authRequired">
+                        <label for="apikey">API key <span class="opt">— required by this server</span></label>
+                        <input id="apikey" type="password" v-model="apiKey" @input="saveApiKey"
+                               autocomplete="new-password" placeholder="Server API key" />
+                        <p class="field-hint">Stored only in this browser (localStorage).</p>
+                    </div>
+                </form>
+            </section>
+
+            <!-- Step 2 — Files -->
+            <section class="card" aria-labelledby="step2-h">
+                <div class="card-head">
+                    <span class="step-num" aria-hidden="true">2</span>
+                    <h2 id="step2-h">eBook files</h2>
+                    <span class="card-sub" v-if="pendingFiles.length">
+                        {{ pendingFiles.length }} selected · max 500 MB each
+                    </span>
+                </div>
+
+                <label class="dropzone" :class="{has: pendingFiles.length, drag: windowDrag}" for="files">
+                    <input id="files" ref="filesInput" class="sr-only" type="file"
+                           accept=".pdf,.epub,application/pdf,application/epub+zip" multiple @change="onFiles" />
+                    <span class="dz-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24"><path d="M12 3l5 5h-3v6h-4V8H7l5-5zM5 19h14v2H5z"/></svg>
+                    </span>
+                    <span class="dz-title" v-if="!pendingFiles.length">
+                        Drag &amp; drop files anywhere, or <strong>browse</strong>
+                    </span>
+                    <span class="dz-title" v-else>Add more files</span>
+                    <span class="dz-sub">PDF or EPUB · up to 500 MB each</span>
+                </label>
+
+                <p v-if="lastIgnored.length" class="hint warn" role="alert">
+                    Skipped {{ lastIgnored.length }} unsupported file{{ lastIgnored.length > 1 ? 's' : '' }}:
+                    {{ lastIgnored.slice(0, 5).join(', ') }}{{ lastIgnored.length > 5 ? '…' : '' }}
+                </p>
+
+                <ul class="file-list" v-if="pendingFiles.length">
+                    <li v-for="f in pendingFiles" :key="f.uid" class="file-item" :class="'st-' + f.status">
+                        <div class="file-main" role="button" tabindex="0"
+                             :aria-expanded="f.expanded && !!(f.details && f.details.length)"
+                             :aria-label="f.name + ', ' + statusLabel(f.status) + (f.details && f.details.length ? '. Press to show details' : '')"
+                             @click="toggleDetails(f)"
+                             @keydown.enter.prevent="toggleDetails(f)"
+                             @keydown.space.prevent="toggleDetails(f)">
+                            <span class="fmt-badge" :class="'fmt-' + f.ext" aria-hidden="true">{{ f.ext.toUpperCase() }}</span>
+                            <span class="file-info">
+                                <span class="file-line1">
+                                    <span class="file-name" :title="f.name">{{ f.name }}</span>
+                                    <span class="file-size">{{ formatSize(f.size) }}</span>
+                                </span>
+                                <span class="file-line2">
+                                    <span class="file-phase">{{ phaseText(f) }}</span>
+                                    <span v-if="f.status === 'uploading'" class="pct">{{ f.progress }}%</span>
+                                    <span v-if="f.details && f.details.length" class="detail-hint">{{ f.expanded ? 'hide details ▴' : 'details ▾' }}</span>
+                                </span>
+                            </span>
+                            <span class="pill" :class="'pill-' + f.status">
+                                <span v-if="f.status === 'uploading' || f.status === 'processing' || f.status === 'throttled'"
+                                      class="spinner small" aria-hidden="true"></span>
+                                {{ statusLabel(f.status) }}
+                            </span>
+                            <button v-if="!busy" type="button" class="icon-btn"
+                                    :title="'Remove ' + f.name" :aria-label="'Remove ' + f.name"
+                                    @click.stop="removeFile(f)">&times;</button>
                         </div>
-                        <div class="summary-actions">
-                            <button v-if="failCount && !busy" type="button" class="secondary" @click="retryFailed">Retry failed ({{ failCount }})</button>
-                            <button v-if="!busy && doneCount === pendingFiles.length && successCount > 0" type="button" class="secondary" @click="clearFinished">Clear finished</button>
+
+                        <div class="bar-wrap" role="progressbar" aria-valuemin="0" aria-valuemax="100"
+                             :aria-valuenow="f.status === 'processing' || f.status === 'throttled' ? undefined : f.progress"
+                             :aria-label="f.name + ' progress'">
+                            <div class="bar" :class="{indeterminate: f.status === 'processing'}"
+                                 :style="f.status === 'processing' || f.status === 'throttled' ? '' : 'width:' + f.progress + '%'"></div>
                         </div>
+
+                        <div v-if="f.error" class="file-error" role="alert">{{ f.error }}</div>
+
+                        <div v-if="f.expanded && f.details" class="file-details">
+                            <p v-if="f.facts.length" class="facts">{{ f.facts.join(' · ') }}</p>
+                            <dl class="meta-grid small">
+                                <template v-for="d in f.details" :key="d.key">
+                                    <div class="meta-cell" :class="{wide: d.key === 'Description'}">
+                                        <dt>{{ d.label }}</dt>
+                                        <dd v-if="d.key === 'SourceUrl'" v-html="linkHtml(d.value)"></dd>
+                                        <dd v-else>{{ d.value }}</dd>
+                                    </div>
+                                </template>
+                            </dl>
+                        </div>
+                    </li>
+                </ul>
+
+                <div v-else class="empty-state">
+                    <p>No files yet — drop some PDFs or EPUBs above, then hit <strong>Bake files</strong>.</p>
+                </div>
+
+                <p class="hint">
+                    Up to {{ maxConcurrent }} files process in parallel. Server rate limiting
+                    (10 uploads/min by default) is handled automatically — throttled files wait and retry on their own.
+                </p>
+            </section>
+
+            <!-- Baked metadata summary -->
+            <transition name="fade">
+                <section class="card meta-card" v-if="metadata" aria-labelledby="meta-h">
+                    <div class="card-head">
+                        <span class="step-num check" aria-hidden="true">
+                            <svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
+                        </span>
+                        <h2 id="meta-h">Baked metadata</h2>
+                        <span class="card-sub" v-if="metaSource">from {{ metaSource }}</span>
+                    </div>
+                    <dl class="meta-grid">
+                        <div v-for="d in prettyMetaList" :key="d.key" class="meta-cell" :class="{wide: d.key === 'Description'}">
+                            <dt>{{ d.label }}</dt>
+                            <dd v-if="d.key === 'SourceUrl'" v-html="linkHtml(d.value)"></dd>
+                            <dd v-else>{{ d.value }}</dd>
+                        </div>
+                    </dl>
+                </section>
+            </transition>
+        </main>
+
+        <!-- Sticky action bar -->
+        <div class="actionbar" :class="{busy}" v-show="pendingFiles.length || busy">
+            <div class="actionbar-inner">
+                <div class="ab-progress" v-if="pendingFiles.length">
+                    <div class="ab-stats">
+                        <span class="ab-count"><strong>{{ doneCount }}</strong> of {{ pendingFiles.length }} done</span>
+                        <span class="ab-mini">
+                            <span v-if="successCount" class="ok">{{ successCount }} baked</span>
+                            <span v-if="failCount" class="fail">{{ failCount }} failed</span>
+                            <span v-if="runningCount" class="run">{{ runningCount }} running</span>
+                            <span v-if="busy" class="elapsed">{{ elapsedText }}</span>
+                        </span>
+                    </div>
+                    <div class="bar-wrap ab-bar" role="progressbar" aria-label="Overall progress"
+                         aria-valuemin="0" aria-valuemax="100" :aria-valuenow="overallPct">
+                        <div class="bar" :style="{width: overallPct + '%'}"></div>
                     </div>
                 </div>
-            </transition>
-        </section>
-        <footer>Books Metadata Baker eBook Utility {{ year }} &copy; <a href="https://github.com/zlx64">ZLX64</a></footer>
+                <div class="ab-actions">
+                    <button v-if="busy" type="button" class="secondary danger" @click="cancelAll">Cancel</button>
+                    <button v-if="!busy && failCount" type="button" class="secondary" @click="retryFailed">
+                        Retry failed ({{ failCount }})
+                    </button>
+                    <button v-if="!busy && successCount" type="button" class="secondary" @click="clearFinished">
+                        Clear finished
+                    </button>
+                    <button type="button" class="primary" :disabled="busy || !canSubmit"
+                            :title="canSubmit ? 'Start (Ctrl+Enter)' : 'Add a title and at least one file first'"
+                            @click="start">
+                        <span v-if="busy" class="spinner" aria-hidden="true"></span>
+                        {{ primaryLabel }}
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Toasts -->
+        <div class="toasts" aria-live="assertive" aria-atomic="false">
+            <transition-group name="toast">
+                <div v-for="t in toasts" :key="t.id" class="toast" :class="'toast-' + t.kind">{{ t.text }}</div>
+            </transition-group>
+        </div>
+
+        <!-- Screen-reader status line (updates on state changes only) -->
+        <span class="sr-only" aria-live="polite">{{ srStatus }}</span>
+
+        <footer class="footer">
+            <span>Books Metadata Baker · {{ year }} ·
+                <a href="https://github.com/zlx64/BooksMetadataBaker" target="_blank" rel="noopener">GitHub</a>
+            </span>
+            <span class="kbd-hint">Tip: <kbd>Ctrl</kbd>+<kbd>Enter</kbd> starts the bake</span>
+        </footer>
     </div>
     <script src="/js/vendor/vue.global.prod.js"></script>
     <script src="/js/app.js"></script>

@@ -38,14 +38,21 @@ BooksMetadataBaker automatically enhances your eBook collection by:
 - Concurrent uploads are serialized per file to prevent write races
 
 ### User Interface
-- Clean, modern web UI built with Vue.js (self-hosted, no CDN required at runtime)
-- Drag & drop or browse for PDF/EPUB files, with client-side 500 MB size check
-- Real-time per-file upload progress + indeterminate processing state
-- Overall progress bar, cancel in-flight uploads, retry failed files, clear finished
-- Per-file status monitoring with inline error messages
+- Clean, modern web UI built with Vue.js (self-hosted, no CDN — system fonts only, works fully offline)
+- Stepped workflow: **1. Book details** (title + segmented type picker with icons) → **2. eBook files**
+- Whole-window drag & drop (drop anywhere on the page) or browse, with client-side 500 MB size check
+- Per-file rows: format badge, predicted saved filename (`Title - Volume N.ext`), phase text
+  (Queued → Uploading % → Baking → Baked), inline errors, and expandable applied-metadata details
+  (attempts, direct/repair embed, Ghostscript repair, full metadata fields)
+- Sticky bottom action bar: overall progress, baked/failed/running counts, elapsed time,
+  **Bake files** (Ctrl+Enter), **Cancel**, **Retry failed**, **Clear finished**
+- "Baked metadata" summary card after the first successful response (authors, genres, publisher,
+  description, source link, …)
+- Server rate limiting (429) is handled automatically: throttled files wait (honoring the server's
+  `Retry-After` header) and retry on their own, with a live countdown
 - API key field (stored in the browser's localStorage), shown only when the server enforces `API_KEY` (probed via `GET /api/config`)
-- Friendly error messages (401/429/400 surface the server's reason)
-- Responsive design, dark mode (follows system preference), reduced-motion support
+- Friendly error messages (401/429/400 surface the server's reason) + toast notifications
+- Theme toggle (auto / light / dark, persisted), responsive design, reduced-motion support, screen-reader status announcements
 
 ## Getting Started
 
@@ -165,19 +172,23 @@ Directory values can be **relative** (subfolder of `ROOT_DIR`) or **absolute** (
 
 - `GhostscriptPath` / `EbookMetaPath`: executable name or absolute path. A startup log warning is emitted if a tool cannot be found.
 - `SourceOrder`: priority order for metadata sources (comma-separated type names). A source whose returned `Title` exactly matches the searched title is always preferred.
-- Uploads are rate-limited per client IP (default 10/minute, HTTP 429 on excess).
+- Uploads are rate-limited per client IP (default 10/minute). Rejected requests get HTTP 429 with a
+  `Retry-After` header and a JSON body (`{"error":"Rate limit exceeded","retryAfterSeconds":N}`)
+  so clients can back off and retry automatically.
 
 ## Usage
 
 ### Web Interface
 
 1. Navigate to the application URL in your browser
-2. Enter the **title** of the book/series
-3. Select the **type** (Book, Comic, Light Novel, or Manga)
-4. Drag & drop (or browse) one or more **PDF/EPUB files**
-5. If the server enforces `API_KEY`, paste it into the **API key** field (remembered in the browser)
-6. Click **Upload & Process**
-7. Monitor per-file and overall progress; use **Cancel**, **Retry failed**, or **Clear finished** as needed
+2. Enter the **title** of the book/series and pick the **type** (Book, Light Novel, Manga, or Comic)
+3. Drag & drop (anywhere on the page) or browse one or more **PDF/EPUB files**
+4. If the server enforces `API_KEY`, paste it into the **API key** field (remembered in the browser)
+5. Click **Bake files** (or press Ctrl+Enter)
+6. Monitor per-file and overall progress in the sticky action bar; use **Cancel**, **Retry failed**,
+   or **Clear finished** as needed
+7. Inspect the **Baked metadata** card and expand any file row to see the applied metadata
+   and processing details (attempts, Ghostscript repair, saved filename)
 
 ### API Endpoint
 
