@@ -126,6 +126,15 @@ public class UploadProcessingService(
                     // no Calibre/Ghostscript. CBR without a RAR tool is a partial
                     // success: the file was saved and organized, embedding skipped.
                     var attempts = await comicMetadataUpdater.RunPipelineAsync(savePath, meta, info.Title, parsed!, info.Type, ct);
+                    // The pipeline may have converted the archive to a .cbz (e.g. no RAR tool
+                    // for .cbr, or an in-place write failure); use the (possibly new) path for
+                    // all downstream bookkeeping.
+                    var finalPath = attempts.FirstOrDefault(a => a.Stage == EBookMetadataAttemptStage.ComicInfo)?.FilePath ?? savePath;
+                    // If the pipeline repackaged the archive as a .cbz, reflect the new format.
+                    // Any other (unchanged) path keeps its original format.
+                    var finalFormat = finalPath.EndsWith(".cbz", StringComparison.OrdinalIgnoreCase)
+                        ? EBookFormat.Cbz
+                        : format;
                     var comicOk = attempts.Any(a => a is { Stage: EBookMetadataAttemptStage.ComicInfo, Success: true });
                     var rarPartial = attempts.Any(a => a is
                     {
@@ -135,10 +144,10 @@ public class UploadProcessingService(
                     });
                     var success = comicOk || rarPartial;
                     var errorMessage = CombineErrors(attempts);
-                    metadataUpdater.WriteSidecarSummary(savePath, meta, info.Title, success, errorMessage, comicOk, false);
-                    if (success) await kavitaWriter.WriteAsync(savePath, meta, info.Title);
+                    metadataUpdater.WriteSidecarSummary(finalPath, meta, info.Title, success, errorMessage, comicOk, false);
+                    if (success) await kavitaWriter.WriteAsync(finalPath, meta, info.Title);
                     result = new(
-                        File: Path.GetFileName(savePath),
+                        File: Path.GetFileName(finalPath),
                         Success: success,
                         ErrorMessage: string.IsNullOrWhiteSpace(errorMessage) ? null : errorMessage,
                         Attempts: attempts.Count,
@@ -146,11 +155,11 @@ public class UploadProcessingService(
                         DirectAttemptSuccess: false,
                         RepairAttemptSuccess: false,
                         GhostscriptRan: false,
-                        Format: format,
+                        Format: finalFormat,
                         ComicInfoWritten: comicOk,
                         PageCount: GetMetaPageCount(meta));
                     if (rarPartial)
-                        logger.LogWarning("ComicInfo.xml not embedded for {File}: {Error}", savePath, errorMessage);
+                        logger.LogWarning("ComicInfo.xml not embedded for {File}: {Error}", finalPath, errorMessage);
                 }
                 else
                 {

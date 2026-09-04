@@ -15,7 +15,13 @@ public class ComicMetadataUpdaterTests
         public int Pages { get; init; }
         public bool WriteOk { get; init; } = true;
         public string? WriteError { get; init; }
+        // CBR→CBZ conversion outcome (default: fails, so the pipeline falls back to
+        // the graceful-skip RarToolMissingError).
+        public bool ConvertOk { get; init; }
+        public string? ConvertNewPath { get; init; }
+        public string? ConvertError { get; init; }
         public string? LastPath { get; private set; }
+        public string? LastConvertPath { get; private set; }
         public string? WrittenXml { get; private set; }
 
         public Task<ComicInfoModel?> ReadExistingAsync(string path, CancellationToken ct) =>
@@ -29,6 +35,12 @@ public class ComicMetadataUpdaterTests
             LastPath = path;
             WrittenXml = xml;
             return Task.FromResult((WriteOk, WriteError));
+        }
+
+        public Task<(bool Ok, string? NewPath, string? Error)> ConvertToCbzAsync(string path, string xml, CancellationToken ct)
+        {
+            LastConvertPath = path;
+            return Task.FromResult((ConvertOk, ConvertNewPath, ConvertError));
         }
     }
 
@@ -125,6 +137,87 @@ public class ComicMetadataUpdaterTests
         var attempt = Assert.Single(attempts);
         Assert.False(attempt.Success);
         Assert.Equal(ComicMetadataUpdater.RarToolMissingError, attempt.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task Pipeline_CbrWithoutRar_ConvertsToCbzAndReportsNewPath()
+    {
+        var writer = new StubArchiveWriter
+        {
+            WriteOk = false,
+            WriteError = ArchiveComicInfoWriter.RarToolUnavailableError,
+            ConvertOk = true,
+            ConvertNewPath = @"C:\library\Book.cbz"
+        };
+
+        var attempts = await Create(writer).RunPipelineAsync(
+            @"C:\library\Book.cbr",
+            new Dictionary<string, string> { ["Title"] = "T" },
+            "Fallback",
+            Parsed(),
+            BookType.Comic,
+            CancellationToken.None);
+
+        var attempt = Assert.Single(attempts);
+        Assert.True(attempt.Success);
+        Assert.True(attempt.MetadataApplied);
+        Assert.Null(attempt.ErrorMessage);
+        Assert.Equal(@"C:\library\Book.cbz", attempt.FilePath);
+        Assert.Equal(@"C:\library\Book.cbr", writer.LastConvertPath);
+    }
+
+    [Fact]
+    public async Task Pipeline_Cb7WriteFails_ConvertsToCbzAndReportsNewPath()
+    {
+        // Any in-place write failure (not just CBR) now triggers the convert-to-CBZ fallback.
+        var writer = new StubArchiveWriter
+        {
+            WriteOk = false,
+            WriteError = "7-Zip in-place update failed",
+            ConvertOk = true,
+            ConvertNewPath = @"C:\library\Book.cbz"
+        };
+
+        var attempts = await Create(writer).RunPipelineAsync(
+            @"C:\library\Book.cb7",
+            new Dictionary<string, string> { ["Title"] = "T" },
+            "Fallback",
+            Parsed(),
+            BookType.Comic,
+            CancellationToken.None);
+
+        var attempt = Assert.Single(attempts);
+        Assert.True(attempt.Success);
+        Assert.True(attempt.MetadataApplied);
+        Assert.Null(attempt.ErrorMessage);
+        Assert.Equal(@"C:\library\Book.cbz", attempt.FilePath);
+        Assert.Equal(@"C:\library\Book.cb7", writer.LastConvertPath);
+    }
+
+    [Fact]
+    public async Task Pipeline_WriteFailsAndConversionFails_KeepsOriginalError()
+    {
+        var writer = new StubArchiveWriter
+        {
+            WriteOk = false,
+            WriteError = "disk full",
+            ConvertOk = false,
+            ConvertError = "extract failed"
+        };
+
+        var attempts = await Create(writer).RunPipelineAsync(
+            @"C:\library\Book.cbt",
+            new Dictionary<string, string> { ["Title"] = "T" },
+            "Fallback",
+            Parsed(),
+            BookType.Comic,
+            CancellationToken.None);
+
+        var attempt = Assert.Single(attempts);
+        Assert.False(attempt.Success);
+        Assert.False(attempt.MetadataApplied);
+        Assert.Equal("disk full", attempt.ErrorMessage);
+        Assert.Equal(@"C:\library\Book.cbt", writer.LastConvertPath);
     }
 
     [Fact]

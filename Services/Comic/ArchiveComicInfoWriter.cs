@@ -4,12 +4,15 @@ using BooksMetadataBaker.Services.Helpers;
 
 namespace BooksMetadataBaker.Services.Comic;
 
-/// <summary>
-/// Reads/writes ComicInfo.xml inside comic archives (guide §4.5, D8).
-/// CBZ is handled in-process (entry order and stored/deflated flags preserved);
-/// CBT via extract+rebuild (uniform, per plan); CB7 via 7-Zip; CBR via 7-Zip
-/// (read) and WinRAR (write, optional — graceful skip when unavailable).
-/// </summary>
+    /// <summary>
+    /// Reads/writes ComicInfo.xml inside comic archives (guide §4.5, D8).
+    /// CBZ is handled in-process (entry order and stored/deflated flags preserved);
+    /// CBT via extract+rebuild (uniform, per plan); CB7 via 7-Zip; CBR via 7-Zip
+    /// (read) and WinRAR (write, optional). When an in-place write is impossible
+    /// (no RAR tool) or fails, <see cref="ConvertToCbzAsync"/> repackages the
+    /// archive as a .cbz with the metadata embedded so every supported type gets
+    /// a ComicInfo.xml.
+    /// </summary>
 public class ArchiveComicInfoWriter : IArchiveComicInfoWriter
 {
     private const int SevenZipTimeoutMs = 120_000;
@@ -419,6 +422,79 @@ public class ArchiveComicInfoWriter : IArchiveComicInfoWriter
         {
             logger.LogError(ex, "Failed to write ComicInfo.xml into {File}", path);
             return (false, ex.Message);
+        }
+        finally
+        {
+            MetadataTemp.Cleanup(workDir);
+        }
+    }
+
+    public async Task<(bool Ok, string? NewPath, string? Error)> ConvertToCbzAsync(string path, string xml, CancellationToken ct)
+    {
+        var ext = Path.GetExtension(path).ToLowerInvariant();
+        if (ext is not (".cbz" or ".cbt" or ".cb7" or ".cbr"))
+            return (false, null, "Unsupported archive format");
+
+        var newPath = Path.ChangeExtension(path, ".cbz");
+        var tmpPath = NewTempPath(newPath);
+        var workDir = NewWorkDir("tocabz");
+        try
+        {
+            // 1. Extract the source archive into a clean work dir.
+            switch (ext)
+            {
+                case ".cbz":
+                    ZipFile.ExtractToDirectory(path, workDir, overwriteFiles: true);
+                    break;
+                case ".cbt":
+                    await TarFile.ExtractToDirectoryAsync(path, workDir, overwriteFiles: true, ct);
+                    break;
+                default: // .cb7 or .cbr — 7-Zip has both 7z and RAR read support.
+                    var exe = ResolveSevenZip();
+                    if (exe is null)
+                        return (false, null, "7-Zip not available — cannot convert to CBZ");
+                    var (xOk, _, xOut, xErr, xRunErr) = await ProcessRunner.RunAsync(
+                        exe, BuildExtractArgs(path, workDir), logger, SevenZipTimeoutMs, ct);
+                    if (!xOk || xRunErr is not null)
+                        return (false, null, $"7-Zip extract failed: {xRunErr ?? (xErr + xOut).Trim()}");
+                    break;
+            }
+
+            // 2. Drop any pre-existing root ComicInfo.xml, then write the merged one.
+            foreach (var f in Directory.EnumerateFiles(workDir))
+            {
+                if (IsRootComicInfo(Path.GetFileName(f)))
+                    File.Delete(f);
+            }
+            await File.WriteAllTextAsync(Path.Combine(workDir, ComicInfoXmlWriter.FileName), xml, ct);
+
+            // 3. Repackage as a ZIP (.cbz). Page images are already compressed, so store
+            //    (no deflate) — fast and the standard for CBZ.
+            await using (var dst = new FileStream(tmpPath, FileMode.Create, FileAccess.Write))
+            {
+                ZipFile.CreateFromDirectory(workDir, dst, CompressionLevel.NoCompression, includeBaseDirectory: false);
+            }
+
+            // 4. Swap: move the new .cbz into place. If the format changed, remove the
+            //    original and its now-stale sidecar (written as <path>.meta.json).
+            File.Move(tmpPath, newPath, overwrite: true);
+            if (!string.Equals(newPath, path, StringComparison.Ordinal))
+            {
+                TryDelete(path);
+                TryDelete(path + ".meta.json");
+            }
+            return (true, newPath, null);
+        }
+        catch (OperationCanceledException)
+        {
+            TryDelete(tmpPath);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            TryDelete(tmpPath);
+            logger.LogError(ex, "Failed to convert {File} to CBZ", path);
+            return (false, null, ex.Message);
         }
         finally
         {

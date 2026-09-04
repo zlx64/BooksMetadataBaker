@@ -329,6 +329,37 @@ public class UploadProcessingServiceTests
     }
 
     [Fact]
+    public async Task ProcessSingle_CbrConvertedToCbz_UsesNewPathAndFormat()
+    {
+        var root = CreateTempDir();
+        var kavita = new RecordingKavitaWriter();
+        // The pipeline converted the .cbr to a .cbz; it reports the new path.
+        var cbzPath = Path.Combine(root, "Comic", "Book", "Specials", "Book SP01.cbz");
+        var convertedAttempt = new EBookMetadataAttemptResult(
+            cbzPath, EBookMetadataAttemptStage.ComicInfo, true, null, false, true);
+        try
+        {
+            var svc = CreateService(root, new RecordingEBookUpdater(), new StubComicUpdater(convertedAttempt), kavita,
+                new Dictionary<string, string> { ["Title"] = "Book" });
+            var file = new FakeFormFile("Book.cbr", [1]);
+
+            var (result, _, _, error) = await svc.ProcessSingleAsync(
+                new UploadRequest { Title = "Book", Type = BookType.Comic }, file, CancellationToken.None);
+
+            Assert.Null(error);
+            Assert.True(result.Success);
+            Assert.True(result.ComicInfoWritten);
+            Assert.Equal("Book SP01.cbz", result.File);
+            Assert.Equal(EBookFormat.Cbz, result.Format);
+            Assert.Equal(1, kavita.Writes);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task ProcessSingle_ArchiveWriteFailure_IsOverallFailure()
     {
         var root = CreateTempDir();

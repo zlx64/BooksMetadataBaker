@@ -55,8 +55,28 @@ public class ComicMetadataUpdater(
         var xml = ComicInfoXmlWriter.ToXml(model);
 
         var (ok, error) = await archiveWriter.WriteAsync(filePath, xml, ct);
-        if (!ok && string.Equals(error, ArchiveComicInfoWriter.RarToolUnavailableError, StringComparison.Ordinal))
-            error = RarToolMissingError;
+
+        // In-place embedding failed (no RAR tool for .cbr, a 7-Zip/TAR hiccup, a corrupt
+        // archive, etc.). Fall back to converting the archive to a .cbz with the
+        // ComicInfo.xml embedded so every supported type gets its metadata. The file path
+        // changes to .cbz when the format changes.
+        if (!ok)
+        {
+            var (convOk, newPath, convErr) = await archiveWriter.ConvertToCbzAsync(filePath, xml, ct);
+            if (convOk && newPath is not null)
+            {
+                logger.LogInformation("Converted {Old} to {New}; ComicInfo.xml embedded", filePath, newPath);
+                filePath = newPath;
+                ok = true;
+                error = null;
+            }
+            else
+            {
+                logger.LogWarning("Archive→CBZ fallback failed for {File}: {Error}; leaving file as-is", filePath, convErr);
+                if (string.Equals(error, ArchiveComicInfoWriter.RarToolUnavailableError, StringComparison.Ordinal))
+                    error = RarToolMissingError;
+            }
+        }
 
         logger.LogInformation(
             "ComicInfo pipeline for {File}: Ok={Ok}, PageCount={PageCount}, Error={Error}",

@@ -364,6 +364,74 @@ public sealed class ArchiveComicInfoWriterTests : IDisposable
     }
 
     [Fact]
+    public async Task ConvertToCbz_7zUnavailable_ReturnsError_FileUntouched()
+    {
+        var writer = CreateWriter(new Dictionary<string, string?> { ["Tools:SevenZipPath"] = Bogus7z });
+        var path = Path.Combine(_dir, "t23.cbr");
+        var original = new byte[] { 0x52, 0x61, 0x72, 0x21, 0x1A, 0x07 }; // RAR magic
+        await File.WriteAllBytesAsync(path, original);
+
+        var (ok, newPath, err) = await writer.ConvertToCbzAsync(path, SampleXml, CancellationToken.None);
+
+        Assert.False(ok);
+        Assert.Null(newPath);
+        Assert.Equal("7-Zip not available — cannot convert to CBZ", err);
+        // Original .cbr is left in place (no .cbz produced).
+        Assert.Equal(original, await File.ReadAllBytesAsync(path));
+        Assert.False(File.Exists(Path.ChangeExtension(path, ".cbz")));
+    }
+
+    [Fact]
+    public async Task ConvertToCbz_UnsupportedExtension_ReturnsError()
+    {
+        var writer = CreateWriter();
+        var path = Path.Combine(_dir, "t24.pdf");
+        await File.WriteAllBytesAsync(path, [1, 2, 3]);
+
+        var (ok, newPath, err) = await writer.ConvertToCbzAsync(path, SampleXml, CancellationToken.None);
+
+        Assert.False(ok);
+        Assert.Null(newPath);
+        Assert.Equal("Unsupported archive format", err);
+        Assert.True(File.Exists(path));
+    }
+
+    [Fact]
+    public async Task ConvertToCbz_Cbt_ConvertsToCbzWithMetadata()
+    {
+        var writer = CreateWriter();
+        var path = await CreateCbtAsync(Path.Combine(_dir, "t25.cbt"),
+            ("001.png", null), ("002.png", null), ("003.png", null));
+
+        var (ok, newPath, err) = await writer.ConvertToCbzAsync(path, SampleXml, CancellationToken.None);
+
+        Assert.True(ok, err);
+        Assert.Equal(Path.ChangeExtension(path, ".cbz"), newPath);
+        // Original .cbt is removed; the new .cbz holds the pages plus ComicInfo.xml.
+        Assert.False(File.Exists(path));
+        Assert.True(File.Exists(newPath!));
+        using var zip = ZipFile.OpenRead(newPath!);
+        Assert.Equal(4, zip.Entries.Count);
+        Assert.Equal(SampleXml, await ReadEntryTextAsync(zip, "ComicInfo.xml"));
+    }
+
+    [Fact]
+    public async Task ConvertToCbz_Cbz_RepackagesInPlace()
+    {
+        var writer = CreateWriter();
+        var path = CreateCbz(Path.Combine(_dir, "t26.cbz"), ("001.png", null), ("002.png", null));
+
+        var (ok, newPath, err) = await writer.ConvertToCbzAsync(path, SampleXml, CancellationToken.None);
+
+        Assert.True(ok, err);
+        Assert.Equal(path, newPath); // already a .cbz — repackaged in place
+        Assert.True(File.Exists(path));
+        using var zip = ZipFile.OpenRead(path);
+        Assert.Equal(3, zip.Entries.Count);
+        Assert.Equal(SampleXml, await ReadEntryTextAsync(zip, "ComicInfo.xml"));
+    }
+
+    [Fact]
     public async Task ReadCb7_7zUnavailable_ReturnsNull()
     {
         var writer = CreateWriter(new Dictionary<string, string?> { ["Tools:SevenZipPath"] = Bogus7z });
