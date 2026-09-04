@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Books Metadata Baker — eBook Upload</title>
-    <meta name="description" content="Upload PDF and EPUB files, apply metadata with Calibre, and write Kavita-ready sidecars." />
+    <meta name="description" content="Upload PDF, EPUB and comic archive files, bake metadata with Calibre or ComicInfo.xml, and write Kavita-ready sidecars." />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%237a2f43' d='M5 2h8l6 6v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z'/%3E%3Cpath fill='%23efe6da' d='M13 2v6h6'/%3E%3C/svg%3E" />
     <link rel="stylesheet" href="/css/app.css" />
 </head>
@@ -15,7 +15,7 @@
         <div class="drop-overlay" v-show="windowDrag" aria-hidden="true">
             <div class="drop-overlay-box">
                 <svg viewBox="0 0 24 24" class="drop-overlay-icon"><path d="M12 3l5 5h-3v6h-4V8H7l5-5zM5 19h14v2H5z"/></svg>
-                <p class="drop-overlay-title">Drop PDF or EPUB files</p>
+                <p class="drop-overlay-title">Drop PDF, EPUB or comic files</p>
                 <p class="drop-overlay-sub">They’ll be added to the queue</p>
             </div>
         </div>
@@ -48,10 +48,11 @@
         <main class="main">
             <section class="hero">
                 <h1>Bake your eBooks</h1>
-                <p class="lede">Upload PDF or EPUB files. Books Metadata Baker fetches metadata from
+                <p class="lede">Upload PDF, EPUB or comic archive files (CBZ, CBR, CB7, CBT).
+                    Books Metadata Baker fetches metadata from
                     <strong>AniList</strong>, <strong>Google Books</strong> and <strong>ComicVine</strong>,
-                    embeds it with Calibre, repairs broken PDFs metadata with Ghostscript, and writes
-                    Kavita-ready sidecars.</p>
+                    embeds it with Calibre or ComicInfo.xml, repairs broken PDFs metadata with Ghostscript,
+                    and writes Kavita-ready sidecars.</p>
             </section>
 
             <!-- Step 1 — Book details -->
@@ -72,7 +73,7 @@
                         <p v-if="titleTouched && !title" class="field-err" role="alert">Title is required.</p>
                         <p v-else class="field-hint">
                             Files are saved into the <strong>{{ typeLabel }}</strong> folder as
-                            <code>{{ title ? predictedName('sample 1.pdf', title) : 'Title - Volume N.pdf' }}</code>.
+                            <code>{{ nameHint }}</code>.
                         </p>
                     </div>
 
@@ -107,7 +108,7 @@
 
                 <label class="dropzone" :class="{has: pendingFiles.length, drag: windowDrag}" for="files">
                     <input id="files" ref="filesInput" class="sr-only" type="file"
-                           accept=".pdf,.epub,application/pdf,application/epub+zip" multiple @change="onFiles" />
+                            accept=".pdf,.epub,.cbz,.cbr,.cb7,.cbt,.zip,.rar,.7z,.tar,application/pdf,application/epub+zip,application/zip,application/x-zip-compressed,application/rar,application/x-rar,application/x-rar-compressed,application/x-7z-compressed,application/x-tar" multiple @change="onFiles" />
                     <span class="dz-icon" aria-hidden="true">
                         <svg viewBox="0 0 24 24"><path d="M12 3l5 5h-3v6h-4V8H7l5-5zM5 19h14v2H5z"/></svg>
                     </span>
@@ -115,7 +116,7 @@
                         Drag &amp; drop files anywhere, or <strong>browse</strong>
                     </span>
                     <span class="dz-title" v-else>Add more files</span>
-                    <span class="dz-sub">PDF or EPUB · up to 500 MB each</span>
+                    <span class="dz-sub">PDF, EPUB or comic archives (CBZ/CBR/CB7/CBT, or ZIP/RAR/7Z/TAR — converted to CBZ/CBR/CB7/CBT) · up to 500 MB each</span>
                 </label>
 
                 <p v-if="lastIgnored.length" class="hint warn" role="alert">
@@ -160,7 +161,15 @@
                                  :style="f.status === 'processing' || f.status === 'throttled' ? '' : 'width:' + f.progress + '%'"></div>
                         </div>
 
-                        <div v-if="f.error" class="file-error" role="alert">{{ f.error }}</div>
+                        <div v-if="f.error" class="file-error" role="alert">
+                            <span class="file-error-msg">{{ errorHeadline(f.error) }}</span>
+                            <button v-if="errorIsDetailed(f.error)" type="button" class="file-error-toggle"
+                                    :aria-expanded="f.errorExpanded"
+                                    @click.stop="toggleError(f)">
+                                {{ f.errorExpanded ? 'hide details ▴' : 'error details ▾' }}
+                            </button>
+                        </div>
+                        <div v-if="f.error && f.errorExpanded && errorIsDetailed(f.error)" class="file-error-detail">{{ f.error }}</div>
 
                         <div v-if="f.expanded && f.details" class="file-details">
                             <p v-if="f.facts.length" class="facts">{{ f.facts.join(' · ') }}</p>
@@ -178,7 +187,7 @@
                 </ul>
 
                 <div v-else class="empty-state">
-                    <p>No files yet — drop some PDFs or EPUBs above, then hit <strong>Bake files</strong>.</p>
+                    <p>No files yet — drop some PDFs, EPUBs or comic archives (CBZ/CBR/CB7/CBT, ZIP, RAR, 7Z, TAR) above, then hit <strong>Bake files</strong>.</p>
                 </div>
 
                 <p class="hint">

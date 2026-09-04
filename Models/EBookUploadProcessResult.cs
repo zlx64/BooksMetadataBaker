@@ -9,4 +9,6 @@ public sealed record EBookUploadProcessResult(
     bool DirectAttemptSuccess,
     bool RepairAttemptSuccess,
     bool GhostscriptRan,
-    EBookFormat Format);
+    EBookFormat Format,
+    bool ComicInfoWritten,
+    int PageCount);

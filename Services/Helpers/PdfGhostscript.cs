@@ -17,7 +17,12 @@ public static class PdfGhostscript
     {
         var gsPath = ResolveGhostscript(gsPathCfg);
         if (gsPath is null)
+        {
+            logger.LogWarning("Ghostscript not found (configured: {Path}); PDF repair will be unavailable", gsPathCfg);
             return (false, "ghostscript not found");
+        }
+
+        logger.LogInformation("Ghostscript repair: {Input} -> {Output}", input, output);
 
         var args = new[]
         {
@@ -33,13 +38,23 @@ public static class PdfGhostscript
             input
         };
 
-        var (ok, _, stdout, stderr, runErr) = await ProcessRunner.RunAsync(gsPath, args, logger, timeoutMs, ct);
+        var (ok, exitCode, stdout, stderr, runErr) = await ProcessRunner.RunAsync(gsPath, args, logger, timeoutMs, ct);
         if (runErr != null)
+        {
+            logger.LogError("Ghostscript did not complete for {Input}: {Error}", input, runErr);
             return (false, runErr);
+        }
         if (!ok)
+        {
+            logger.LogWarning("Ghostscript exited non-zero ({ExitCode}) for {Input}; repair skipped", exitCode, input);
             return (false, string.IsNullOrWhiteSpace(stderr + stdout) ? "ghostscript failed" : (stderr + stdout).Trim());
+        }
         if (!File.Exists(output) || new FileInfo(output).Length == 0)
+        {
+            logger.LogWarning("Ghostscript produced empty output for {Input}", input);
             return (false, "ghostscript produced empty output");
+        }
+        logger.LogInformation("Ghostscript repair succeeded for {Input}", input);
         return (true, null);
     }
 }

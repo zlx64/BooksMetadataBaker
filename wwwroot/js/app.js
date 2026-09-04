@@ -19,6 +19,11 @@
   const THROTTLE_MAX_RETRIES = 3;
   const THROTTLE_DEFAULT_WAIT_S = 30;
   const LS = { apiKey: 'bmb.apiKey', type: 'bmb.type', theme: 'bmb.theme' };
+  const ALLOWED_EXTS = ['pdf', 'epub', 'cbz', 'cbr', 'cb7', 'cbt', 'zip', 'rar', '7z', 'tar'];
+  const COMIC_EXTS = ['cbz', 'cbr', 'cb7', 'cbt', 'zip', 'rar', '7z', 'tar'];
+  // Raw containers the server converts to their Kavita equivalent (P9):
+  // the predicted saved name shows the *output* extension.
+  const KAVITA_EXT = { zip: 'cbz', '7z': 'cb7', rar: 'cbr', tar: 'cbt' };
 
   const TYPES = [
     {
@@ -122,23 +127,68 @@
     return i === -1 ? '' : name.slice(i + 1).toLowerCase();
   }
 
-  // Mirrors the server's GetUniqueEBookPath/BuildVolumeName:
-  // first number in the filename becomes "Title - Volume N", else just "Title".
+  // Normalize a parsed number like the server's NormalizeNumber:
+  // "007" -> "7", "034.5" -> "34.5".
+  function normNum(num) {
+    const s = String(num);
+    if (s.includes('.')) {
+      const d = Number(s);
+      return Number.isFinite(d) ? String(d) : s;
+    }
+    const i = parseInt(s, 10);
+    return Number.isFinite(i) ? String(i) : s;
+  }
+
+  // Simple mirror of the server's ComicFilenameParser + GetArchiveSavePath for
+  // comic archives (preview only — the server's saved name always wins and is
+  // shown in the result row): vol marker -> "Title - Volume N", ch marker /
+  // SP marker / bare trailing number -> chapter or special, else "Specials/Title SP01".
+  function predictedComicName(fileName, bookTitle) {
+    const ext = extOf(fileName);
+    const base = ext ? fileName.slice(0, fileName.length - ext.length - 1) : fileName;
+    const t = bookTitle || 'Title';
+    const outExt = KAVITA_EXT[ext] || ext;
+    const suffix = outExt ? '.' + outExt : '';
+    const name = base.replace(/\s*\[[^\]]*\]/g, ''); // drop scanlation brackets
+
+    const vol = name.match(/(?<![A-Za-z])(?:volume|vol\.?|tome|[vt])\s*\.?\s*(\d{1,4}(?:\.\d+)?)/i);
+    if (vol) return t + ' - Volume ' + normNum(vol[1]) + suffix;
+
+    const ch = name.match(/(?<![A-Za-z])(?:chapter|chp\.?|ch\.?|episode|ep|c)\s*\.?\s*(\d{1,4}(?:\.\d+)?)(b)?/i);
+    if (ch) return t + ' - Chapter ' + normNum(ch[2] === 'b' ? Number(ch[1]) + 0.5 : ch[1]) + suffix;
+
+    if (/(?<![A-Za-z])SP\s*\d{1,3}\b/i.test(name)) return 'Specials/' + t + ' SP01' + suffix;
+
+    // Bare trailing number; volume markers and parenthesized groups stripped first,
+    // 4-digit years (1900-2099) are not chapters.
+    const residual = name
+      .replace(/(?<![A-Za-z])(?:volume|vol\.?|tome|[vt])\s*\.?\s*\d{1,4}(?:\.\d+)?/gi, '')
+      .replace(/\([^)]*\)/g, '');
+    const trailing = residual.match(/(\d{1,4}(?:\.\d+)?)(b?)\s*$/);
+    if (trailing) {
+      const raw = trailing[1];
+      const isYear = raw.length === 4 && Number(raw) >= 1900 && Number(raw) <= 2099;
+      if (!isYear) {
+        return t + ' - Chapter ' + normNum(trailing[2] === 'b' ? Number(raw) + 0.5 : raw) + suffix;
+      }
+    }
+
+    return 'Specials/' + t + ' SP01' + suffix;
+  }
+
+  // Mirrors the server's naming (preview only — the server's saved name always
+  // wins and is shown in the result row):
+  // - PDF/EPUB: GetUniqueEBookPath/BuildVolumeName — first number -> "Title - Volume N",
+  //   else just "Title".
+  // - comic archives: predictedComicName (see above).
   function predictedName(fileName, bookTitle) {
     const ext = extOf(fileName);
+    if (COMIC_EXTS.includes(ext)) return predictedComicName(fileName, bookTitle);
     const base = ext ? fileName.slice(0, fileName.length - ext.length - 1) : fileName;
     const m = base.match(/\d+(?:\.\d+)?/);
     const t = bookTitle || 'Title';
     if (!m) return t + (ext ? '.' + ext : '');
-    let num = m[0];
-    if (num.includes('.')) {
-      const d = Number(num);
-      num = Number.isFinite(d) ? String(d) : num;
-    } else {
-      const i = parseInt(num, 10);
-      num = Number.isFinite(i) ? String(i) : num;
-    }
-    return t + ' - Volume ' + num + (ext ? '.' + ext : '');
+    return t + ' - Volume ' + normNum(m[0]) + (ext ? '.' + ext : '');
   }
 
   function prettyMeta(meta) {
@@ -165,6 +215,20 @@
   }
 
   function statusLabel(s) { return STATUS_LABELS[s] || s; }
+
+  // Error display: a terse headline (first line) is always shown next to the
+  // failed upload; the full multi-line detail (tool stderr, exit codes) is
+  // revealed on demand so a large stderr dump doesn't flood the queue row.
+  function errorHeadline(text) {
+    if (!text) return '';
+    const first = String(text).split(/\r?\n/)[0].trim();
+    return first.length > 120 ? first.slice(0, 117) + '…' : first;
+  }
+  function errorIsDetailed(text) {
+    if (!text) return false;
+    const s = String(text);
+    return s.includes('\n') || s.includes('\r') || s.length > 110;
+  }
 
   // -------------------------------------------------------------------
   // App
@@ -218,6 +282,13 @@
       // Derived state
       // -------------------------------------------------------------
       const typeLabel = computed(() => (TYPES.find(t => t.value === type.value) || {}).label || type.value);
+      const isComicType = computed(() => type.value === 'Manga' || type.value === 'Comic');
+      // Naming hint: preview the server's saved name for a sample file of the
+      // selected type (comic types preview the archive naming rules).
+      const nameHint = computed(() => {
+        if (!title.value) return isComicType.value ? 'Title - Volume N.cbz' : 'Title - Volume N.pdf';
+        return predictedName(isComicType.value ? 'sample vol 1.cbz' : 'sample 1.pdf', title.value);
+      });
       const canSubmit = computed(() =>
         title.value.trim().length > 0 && pendingFiles.some(f => f.status === 'pending'));
       const pendingCount = computed(() => pendingFiles.filter(f => f.status === 'pending').length);
@@ -286,7 +357,7 @@
         let added = 0;
         for (const f of incoming) {
           const ext = extOf(f.name);
-          if (ext !== 'pdf' && ext !== 'epub') {
+          if (!ALLOWED_EXTS.includes(ext)) {
             if (!lastIgnored.value.includes(f.name)) lastIgnored.value.push(f.name);
             continue;
           }
@@ -303,6 +374,7 @@
             progress: 0,
             status: 'pending', // pending | uploading | processing | throttled | success | error | canceled
             error: null,
+            errorExpanded: false,
             attempts: 0,
             skip: false,
             expanded: false,
@@ -332,6 +404,10 @@
       function toggleDetails(entry) {
         if (!entry.details || !entry.details.length) return;
         entry.expanded = !entry.expanded;
+      }
+
+      function toggleError(entry) {
+        entry.errorExpanded = !entry.errorExpanded;
       }
 
       // Whole-window drag & drop (handlers live on #app)
@@ -364,7 +440,7 @@
           return;
         }
         if (!pendingCount.value) {
-          toast('Add at least one PDF or EPUB file', 'warn');
+          toast('Add at least one PDF, EPUB or comic file', 'warn');
           return;
         }
         // A new title means the old metadata card no longer applies
@@ -424,6 +500,7 @@
             f.status = 'pending';
             f.progress = 0;
             f.error = null;
+            f.errorExpanded = false;
             f.attempts = 0;
             f.throttleRetries = 0;
             f.savedName = null;
@@ -554,9 +631,20 @@
           try {
             const j = JSON.parse(body);
             if (typeof j === 'string') body = j;
-            else if (j && typeof j === 'object') body = j.error || j.title || JSON.stringify(j);
+            else if (j && typeof j === 'object') {
+              // ASP.NET Core ProblemDetails (e.g. model validation): surface the
+              // field-level `errors` instead of the generic "One or more
+              // validation errors occurred" title.
+              if (j.errors && typeof j.errors === 'object' && !Array.isArray(j.errors)) {
+                const parts = Object.entries(j.errors).map(([k, v]) =>
+                  k + ': ' + (Array.isArray(v) ? v.join(' ') : String(v)));
+                body = parts.join(' | ');
+              } else {
+                body = j.error || j.title || JSON.stringify(j);
+              }
+            }
           } catch { /* keep raw text */ }
-          body = body.slice(0, 300);
+          body = body.slice(0, 1000);
         }
         return body || ('Upload failed (HTTP ' + xhr.status + ')');
       }
@@ -578,11 +666,19 @@
         const direct = pick(fileResult, 'DirectAttemptSuccess', 'directAttemptSuccess');
         const repair = pick(fileResult, 'RepairAttemptSuccess', 'repairAttemptSuccess');
         const gs = pick(fileResult, 'GhostscriptRan', 'ghostscriptRan');
+        const comicInfo = pick(fileResult, 'ComicInfoWritten', 'comicInfoWritten');
+        const pages = pick(fileResult, 'PageCount', 'pageCount');
         const facts = [];
         facts.push('Attempts: ' + (entry.attempts || 1));
-        facts.push(direct ? 'Direct embed: ok' : 'Direct embed: failed');
-        if (repair !== undefined) facts.push('Repair pass: ' + (repair ? 'ok' : 'failed'));
-        if (gs) facts.push('Ghostscript repair: ran');
+        if (COMIC_EXTS.includes(entry.ext)) {
+          // Comic archives skip Calibre/Ghostscript — report the ComicInfo.xml outcome instead.
+          facts.push(comicInfo ? 'ComicInfo.xml: embedded' : 'ComicInfo.xml: not embedded');
+          if (pages) facts.push('Pages: ' + pages);
+        } else {
+          facts.push(direct ? 'Direct embed: ok' : 'Direct embed: failed');
+          if (repair !== undefined) facts.push('Repair pass: ' + (repair ? 'ok' : 'failed'));
+          if (gs) facts.push('Ghostscript repair: ran');
+        }
         entry.facts = facts;
 
         const md = pick(data, 'Metadata', 'metadata');
@@ -671,12 +767,12 @@
         title, titleTouched, titleInput, type, apiKey, authRequired, theme,
         filesInput, pendingFiles, busy, windowDrag, lastIgnored,
         metadata, toasts, year,
-        typeLabel, canSubmit, pendingCount, successCount, failCount, runningCount,
+        typeLabel, isComicType, nameHint, canSubmit, pendingCount, successCount, failCount, runningCount,
         doneCount, overallPct, primaryLabel, elapsedText, prettyMetaList, metaSource, srStatus,
         maxConcurrent: MAX_CONCURRENT,
         onFiles, dragEnter, dragLeave, onDrop,
-        start, cancelAll, retryFailed, clearFinished, removeFile, toggleDetails,
-        formatSize, statusLabel, phaseText, predictedName, linkHtml,
+        start, cancelAll, retryFailed, clearFinished, removeFile, toggleDetails, toggleError,
+        formatSize, statusLabel, phaseText, predictedName, linkHtml, errorHeadline, errorIsDetailed,
         saveApiKey, saveType, cycleTheme
       };
     }

@@ -15,6 +15,12 @@ try
         ("GOOGLE_BOOKS_KEY", "PdfLibrary:GoogleBooks:ApiKey"),
         ("COMIC_VINE_KEY", "PdfLibrary:ComicVine:ApiKey"),
         ("API_KEY", "Auth:ApiKey"),
+        ("MANGA_COMICS_ENABLED", "MangaComics:Enabled"),
+        ("MANGA_COMICS_ALLOWED_EXTENSIONS", "MangaComics:AllowedExtensions"),
+        ("MANGA_COMICS_SPECIALS_SUBFOLDER", "MangaComics:SpecialsSubfolder"),
+        ("MANGA_COMICS_USE_CURLY_BRACE_YEAR", "MangaComics:UseCurlyBraceYear"),
+        ("SEVEN_ZIP_PATH", "Tools:SevenZipPath"),
+        ("RAR_PATH", "Tools:RarPath"),
     };
     var overrides = envMap
         .Where(e => !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(e.Item1)))

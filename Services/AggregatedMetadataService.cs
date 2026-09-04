@@ -26,6 +26,15 @@ public class AggregatedMetadataService(
     {
         var results = await Task.WhenAll(orderedSources.Select(s => s.TryFetchAsync(searchTitle, type, ct)));
 
+        for (var i = 0; i < orderedSources.Count; i++)
+        {
+            var source = orderedSources[i].GetType().Name;
+            var dict = results[i];
+            logger.LogInformation("Metadata source {Source} returned {Count} field(s) for {Title}{Keys}",
+                source, dict.Count, searchTitle,
+                dict.Count > 0 ? " (" + string.Join(',', dict.Keys) + ")" : string.Empty);
+        }
+
         var merged = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var dict in results)
         {

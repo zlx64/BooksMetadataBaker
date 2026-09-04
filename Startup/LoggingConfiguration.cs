@@ -12,17 +12,26 @@ public static class LoggingConfiguration
     /// </summary>
     public static WebApplicationBuilder ConfigureSerilog(this WebApplicationBuilder builder)
     {
-        Log.Logger = new LoggerConfiguration()
+        // The Serilog section in appsettings.json already defines a Console (and
+        // File) sink. Only add a fallback Console sink when none are configured,
+        // otherwise every log line is written twice.
+        var hasConfiguredSinks =
+            builder.Configuration.GetSection("Serilog:WriteTo").GetChildren().Any();
+
+        var config = new LoggerConfiguration()
             .ReadFrom.Configuration(builder.Configuration)
             .Enrich.FromLogContext()
             .Enrich.WithEnvironmentName()
             .Enrich.WithProcessId()
-            .Enrich.WithThreadId()
-            .WriteTo.Console() // fallback if config missing
-            .CreateLogger();
+            .Enrich.WithThreadId();
+
+        if (!hasConfiguredSinks)
+            config = config.WriteTo.Console();
+
+        Log.Logger = config.CreateLogger();
 
         builder.Host.UseSerilog();
-        
+
         return builder;
     }
 }

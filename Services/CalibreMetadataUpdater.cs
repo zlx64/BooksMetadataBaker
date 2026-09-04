@@ -30,9 +30,12 @@ public static class CalibreMetadataUpdater
             return (false, runErr);
         }
         if (!ok)
+        {
+            logger.LogWarning("ebook-meta cleanup returned non-zero for {File}", path);
             return (false, string.IsNullOrWhiteSpace(stderr + stdout)
                 ? "ebook-meta cleanup failed"
                 : (stderr + stdout).Trim());
+        }
         return (true, null);
     }
 
@@ -57,9 +60,12 @@ public static class CalibreMetadataUpdater
             return (false, runErr);
         }
         if (!ok)
+        {
+            logger.LogWarning("ebook-meta write returned non-zero for {File}", path);
             return (false, string.IsNullOrWhiteSpace(stderr + stdout)
                 ? "ebook-meta failed"
                 : (stderr + stdout).Trim());
+        }
         return (true, null);
     }
 

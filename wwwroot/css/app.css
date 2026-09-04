@@ -500,6 +500,16 @@ label[type-opt]:focus-within, .file-main:focus-visible, .dropzone:focus-within {
 }
 .fmt-pdf  { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, transparent); background: var(--danger-soft); }
 .fmt-epub { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); background: var(--accent-soft); }
+.fmt-cbz  { color: var(--success); border-color: color-mix(in srgb, var(--success) 45%, transparent); background: color-mix(in srgb, var(--success) 14%, var(--input-bg)); }
+.fmt-cbr  { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); background: var(--warn-soft); }
+.fmt-cb7  { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); background: var(--accent-soft); }
+.fmt-cbt  { color: var(--soft); border-color: color-mix(in srgb, var(--soft) 40%, transparent); background: var(--panel-soft); }
+/* Raw containers (P9): saved as their Kavita equivalent — hue matches the target
+   format, dashed border signals the conversion. */
+.fmt-zip  { color: var(--success); border-style: dashed; border-color: color-mix(in srgb, var(--success) 45%, transparent); background: color-mix(in srgb, var(--success) 14%, var(--input-bg)); }
+.fmt-rar  { color: var(--warn); border-style: dashed; border-color: color-mix(in srgb, var(--warn) 45%, transparent); background: var(--warn-soft); }
+.fmt-7z   { color: var(--accent); border-style: dashed; border-color: color-mix(in srgb, var(--accent) 45%, transparent); background: var(--accent-soft); }
+.fmt-tar  { color: var(--soft); border-style: dashed; border-color: color-mix(in srgb, var(--soft) 45%, transparent); background: var(--panel-soft); }
 
 .file-info { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: .1rem; }
 .file-line1 { display: flex; align-items: baseline; gap: .55rem; min-width: 0; }
@@ -580,10 +590,44 @@ label[type-opt]:focus-within, .file-main:focus-visible, .dropzone:focus-within {
 
 .file-error {
   margin-top: .4rem;
+  display: flex;
+  align-items: baseline;
+  gap: .5rem;
   color: var(--danger);
   font-size: .78rem;
   font-weight: 500;
   word-break: break-word;
+}
+.file-error-msg { min-width: 0; }
+.file-error-toggle {
+  flex: 0 0 auto;
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--danger);
+  font-size: .7rem;
+  font-weight: 600;
+  cursor: pointer;
+  opacity: .8;
+  white-space: nowrap;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.file-error-toggle:hover { opacity: 1; }
+.file-error-detail {
+  margin-top: .35rem;
+  padding: .5rem .65rem;
+  background: var(--danger-soft);
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
+  border-radius: var(--radius-s);
+  color: var(--danger);
+  font-family: var(--font-mono);
+  font-size: .72rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 16rem;
+  overflow: auto;
 }
 
 .detail-hint {

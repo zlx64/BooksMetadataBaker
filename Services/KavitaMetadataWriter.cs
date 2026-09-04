@@ -83,7 +83,7 @@ public class KavitaMetadataWriter(ILogger<KavitaMetadataWriter> logger) : IKavit
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Failed writing Kavita series metadata for {File}", filePath);
+            logger.LogError(ex, "Failed writing Kavita series metadata for {File}", filePath);
         }
         finally
         {

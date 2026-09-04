@@ -5,8 +5,10 @@ FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS base
 ARG APP_UID=1000
 ARG APP_GID=1000
 # Calibre's dependencies may pre-create an 'app' group, so create idempotently
+# 7zip provides 7z (newer distros ship 7zz; Tools:SevenZipPath tries 7z then 7zz).
+# Used for CB7 read/write and CBR read. CBR ComicInfo embedding stays opt-in via Tools:RarPath.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ghostscript calibre \
+    && apt-get install -y --no-install-recommends ghostscript calibre 7zip \
     && rm -rf /var/lib/apt/lists/*
 RUN (getent group app >/dev/null || groupadd --gid ${APP_GID} app) \
     && (getent passwd app >/dev/null || useradd --uid ${APP_UID} --gid app --create-home app) \
@@ -24,6 +26,12 @@ EXPOSE 8080
 #   GOOGLE_BOOKS_KEY   - Google Books API key
 #   COMIC_VINE_KEY     - ComicVine API key
 #   API_KEY            - optional; when set, /api endpoints require the X-Api-Key header
+#   MANGA_COMICS_ENABLED            - enable comic archive uploads (default: true)
+#   MANGA_COMICS_ALLOWED_EXTENSIONS - comma-separated archive extensions (default: cbz,cbr,cb7,cbt,zip,rar,7z,tar; raw containers are saved as their Kavita equivalent)
+#   MANGA_COMICS_SPECIALS_SUBFOLDER - store specials in Specials/ subfolder (default: true)
+#   MANGA_COMICS_USE_CURLY_BRACE_YEAR - emit {YYYY} instead of (YYYY) for parsed years (default: false)
+#   SEVEN_ZIP_PATH     - 7-Zip executable for CB7/CBR (default: 7z, falls back to 7zz)
+#   RAR_PATH           - optional WinRAR executable for CBR ComicInfo embedding
 # Directory values can be relative (subfolder of ROOT_DIR) or absolute (e.g. /mnt/comics)
 # If all type dirs are absolute, ROOT_DIR is not needed
 # Build args: APP_UID / APP_GID (default 1000:1000). Match the owner of host bind mounts:

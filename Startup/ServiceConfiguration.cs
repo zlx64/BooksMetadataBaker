@@ -1,4 +1,6 @@
 using System.Globalization;
+using BooksMetadataBaker.Services.Comic;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.RateLimiting;
 
 namespace BooksMetadataBaker.Startup;
@@ -17,6 +19,11 @@ public static class ServiceConfiguration
         services.AddControllers();
         services.AddEndpointsApiExplorer();
         services.AddSwaggerGen();
+
+        // The default multipart body limit is 128MB, which rejects larger uploads
+        // with a generic "One or more validation errors occurred" even though the
+        // endpoint's [RequestSizeLimit] allows up to 500MB. Raise it to match.
+        services.Configure<FormOptions>(o => o.MultipartBodyLengthLimit = 536870912); // 512MB
 
         // Caching
         services.AddMemoryCache();
@@ -65,6 +72,8 @@ public static class ServiceConfiguration
         services.AddSingleton<IEBookMetadataUpdater, EBookMetadataUpdater>();
         services.AddSingleton<IKavitaMetadataWriter, KavitaMetadataWriter>();
         services.AddScoped<IUploadProcessingService, UploadProcessingService>();
+        services.AddSingleton<IArchiveComicInfoWriter, ArchiveComicInfoWriter>();
+        services.AddSingleton<IComicMetadataUpdater, ComicMetadataUpdater>();
 
         return services;
 

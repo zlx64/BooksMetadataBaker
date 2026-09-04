@@ -81,11 +81,12 @@ public class GoogleBooksService(
         }
         catch (Exception ex)
         {
+            int? status = ex is HttpRequestException { StatusCode: { } sc } ? (int)sc : null;
             if (ex is HttpRequestException { StatusCode: System.Net.HttpStatusCode.TooManyRequests } && string.IsNullOrWhiteSpace(apiKey))
                 logger.LogWarning(
                     "GoogleBooks keyless quota exhausted (HTTP 429) for {Title}. Set GOOGLE_BOOKS_KEY to use a dedicated quota.", title);
             else
-                logger.LogWarning(ex, "GoogleBooks fetch failed for {Title} Type={Type}", title, type);
+                logger.LogWarning(ex, "GoogleBooks fetch failed for {Title} Type={Type} Status={Status}", title, type, status?.ToString() ?? "n/a");
             return new Dictionary<string,string>();
         }
     }
