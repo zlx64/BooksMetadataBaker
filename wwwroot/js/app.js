@@ -7,82 +7,46 @@
 // - Concurrency queue (up to 4 parallel), cancel, retry failed, clear finished
 // - Server rate-limit (429) auto-retry with Retry-After backoff + countdown
 // - Applied-metadata rendering (summary card + per-file expandable details)
+  // - UI localization (en/ua via vue-i18n; API data & errors stay as-is)
 // - Toasts, keyboard shortcut (Ctrl+Enter), screen-reader status line
 // ---------------------------------------------------------------------
 
 (function () {
   const { createApp, reactive, ref, computed, onMounted, onBeforeUnmount } = Vue;
+  const { createI18n, useI18n } = VueI18n;
 
   const MAX_FILE_SIZE = 500 * 1024 * 1024;      // must match server RequestSizeLimit
   const MAX_CONCURRENT = 4;
   const XHR_TIMEOUT_MS = 30 * 60 * 1000;        // safety net so the UI never hangs forever
   const THROTTLE_MAX_RETRIES = 3;
   const THROTTLE_DEFAULT_WAIT_S = 30;
-  const LS = { apiKey: 'bmb.apiKey', type: 'bmb.type', theme: 'bmb.theme' };
+  const LS = { apiKey: 'bmb.apiKey', type: 'bmb.type', theme: 'bmb.theme', locale: 'bmb.locale' };
   const ALLOWED_EXTS = ['pdf', 'epub', 'cbz', 'cbr', 'cb7', 'cbt', 'zip', 'rar', '7z', 'tar'];
   const COMIC_EXTS = ['cbz', 'cbr', 'cb7', 'cbt', 'zip', 'rar', '7z', 'tar'];
   // Raw containers the server converts to their Kavita equivalent (P9):
   // the predicted saved name shows the *output* extension.
   const KAVITA_EXT = { zip: 'cbz', '7z': 'cb7', rar: 'cbr', tar: 'cbt' };
 
+  // `value` is the server-facing type (also the i18n key under `types.*`);
+  // the display label is localized in the template via $t('types.' + value).
   const TYPES = [
     {
-      value: 'Book', label: 'Book',
+      value: 'Book',
       icon: '<svg viewBox="0 0 24 24"><path d="M12 6c-1.5-1.6-3.7-2.5-6-2.5H3v15h3c2.3 0 4.5.9 6 2.5 1.5-1.6 3.7-2.5 6-2.5h3v-15h-3c-2.3 0-4.5.9-6 2.5z"/><path d="M12 6v15"/></svg>'
     },
     {
-      value: 'LightNovel', label: 'Light Novel',
+      value: 'LightNovel',
       icon: '<svg viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V4H6.5A2.5 2.5 0 0 0 4 6.5v13z"/><path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5"/><path d="M9 8h7M9 11h5"/></svg>'
     },
     {
-      value: 'Manga', label: 'Manga',
+      value: 'Manga',
       icon: '<svg viewBox="0 0 24 24"><path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5c-1.5 0-3-.4-4.2-1.1L3 20l1.1-5.3A8.5 8.5 0 1 1 21 11.5z"/><path d="M8.5 10.5h.01M12 10.5h.01M15.5 10.5h.01"/></svg>'
     },
     {
-      value: 'Comic', label: 'Comic',
+      value: 'Comic',
       icon: '<svg viewBox="0 0 24 24"><path d="M13 2 4 14h6l-1 8 9-12h-6l1-8z"/></svg>'
     }
   ];
-
-  const STATUS_LABELS = {
-    pending: 'Queued',
-    uploading: 'Uploading',
-    processing: 'Baking',
-    throttled: 'Rate-limited',
-    success: 'Baked',
-    error: 'Failed',
-    canceled: 'Canceled'
-  };
-
-  const META_LABELS = {
-    Title: 'Title',
-    TitleEnglish: 'Title (English)',
-    TitleRomaji: 'Title (Romaji)',
-    TitleNative: 'Title (Native)',
-    Subtitle: 'Subtitle',
-    Authors: 'Authors',
-    Publisher: 'Publisher',
-    PublishedDate: 'Published',
-    StartDate: 'Started',
-    EndDate: 'Ended',
-    StartYear: 'Start year',
-    Genres: 'Genres',
-    Categories: 'Categories',
-    Tags: 'Tags',
-    Format: 'Format',
-    Status: 'Status',
-    AverageScore: 'Average score',
-    Volumes: 'Volumes',
-    Chapters: 'Chapters',
-    PageCount: 'Pages',
-    IssueCount: 'Issues',
-    Language: 'Language',
-    Description: 'Description',
-    Snippet: 'Snippet',
-    Source: 'Source',
-    SourceUrl: 'Source URL',
-    ApiDetailUrl: 'API URL'
-  };
 
   const META_ORDER = [
     'Title', 'TitleRomaji', 'TitleEnglish', 'TitleNative', 'Subtitle',
@@ -191,12 +155,13 @@
     return t + ' - Volume ' + normNum(m[0]) + (ext ? '.' + ext : '');
   }
 
-  function prettyMeta(meta) {
+  function prettyMeta(t, meta) {
     if (!meta) return [];
     const keys = Object.keys(meta);
     const ordered = META_ORDER.filter(k => keys.includes(k) && meta[k]);
     const rest = keys.filter(k => !META_ORDER.includes(k) && meta[k]);
-    return [...ordered, ...rest].map(k => ({ key: k, label: META_LABELS[k] || k, value: meta[k] }));
+    // Labels are localized UI chrome; the values come from the API untouched.
+    return [...ordered, ...rest].map(k => ({ key: k, label: t('metaLabels.' + k, k), value: meta[k] }));
   }
 
   function escapeHtml(s) {
@@ -214,7 +179,7 @@
     return '<a href="' + safe + '" target="_blank" rel="noopener">' + safe + '</a>';
   }
 
-  function statusLabel(s) { return STATUS_LABELS[s] || s; }
+  function statusLabel(t, s) { return t('status.' + s, s); }
 
   // Error display: a terse headline (first line) is always shown next to the
   // failed upload; the full multi-line detail (tool stderr, exit codes) is
@@ -231,10 +196,37 @@
   }
 
   // -------------------------------------------------------------------
+  // Localization (vue-i18n; catalogs live in /js/i18n.js)
+  // -------------------------------------------------------------------
+  function detectLocale() {
+    const saved = lsGet(LS.locale);
+    if (BMB_I18N.locales.includes(saved)) return saved;
+    if (saved === 'uk') return 'ua'; // legacy value from before the uk → ua rename
+    try {
+      const nav = (navigator.language || 'en').toLowerCase();
+      // BCP-47 subtag for Ukrainian is 'uk' (ua is the deprecated ISO code)
+      if (nav.startsWith('uk')) return 'ua';
+      for (const code of BMB_I18N.locales) {
+        if (code !== 'ua' && nav.startsWith(code)) return code;
+      }
+    } catch { /* no navigator (tests) — fall through */ }
+    return 'en';
+  }
+  const i18n = createI18n({
+    legacy: false,
+    locale: detectLocale(),
+    fallbackLocale: 'en',
+    messages: BMB_I18N.messages,
+    pluralRules: BMB_I18N.pluralRules
+  });
+
+  // -------------------------------------------------------------------
   // App
   // -------------------------------------------------------------------
-  createApp({
+  const app = createApp({
     setup() {
+      const { t, locale } = useI18n();
+
       // -------------------------------------------------------------
       // Reactive state
       // -------------------------------------------------------------
@@ -244,10 +236,10 @@
       const type = ref(TYPES.some(t => t.value === lsGet(LS.type)) ? lsGet(LS.type) : 'LightNovel');
       const apiKey = ref(lsGet(LS.apiKey));
       const authRequired = ref(true); // safe fallback until the probe says otherwise
-      const theme = ref(['light', 'dark', 'auto'].includes(lsGet(LS.theme)) ? lsGet(LS.theme) : 'auto');
+      const theme = ref(['light', 'dark', 'auto'].includes(lsGet(LS.theme)) ? lsGet(LS.theme) : 'light');
 
       const filesInput = ref(null);
-      const pendingFiles = reactive([]); // { uid, file, name, size, ext, progress, status, error, attempts, skip, expanded, details, facts, savedName, throttleRetries, retryAt, _xhr }
+      const pendingFiles = reactive([]); // { uid, file, name, size, ext, progress, status, error, attempts, skip, expanded, details (raw meta), factData, savedName, throttleRetries, retryAt, _xhr }
       const busy = ref(false);
       const windowDrag = ref(false);
       const lastIgnored = ref([]);
@@ -279,9 +271,25 @@
       applyTheme();
 
       // -------------------------------------------------------------
+      // Language
+      // -------------------------------------------------------------
+      function applyLocale() {
+        // <html lang> takes the BCP-47 tag: Ukrainian is 'uk', not 'ua'
+        document.documentElement.setAttribute('lang', locale.value === 'ua' ? 'uk' : locale.value);
+        document.title = t('docTitle');
+      }
+      function setLocale(code) {
+        if (!BMB_I18N.locales.includes(code) || code === locale.value) return;
+        locale.value = code;
+        lsSet(LS.locale, code);
+        applyLocale();
+      }
+      applyLocale();
+
+      // -------------------------------------------------------------
       // Derived state
       // -------------------------------------------------------------
-      const typeLabel = computed(() => (TYPES.find(t => t.value === type.value) || {}).label || type.value);
+      const typeLabel = computed(() => t('types.' + type.value, type.value));
       const isComicType = computed(() => type.value === 'Manga' || type.value === 'Comic');
       // Naming hint: preview the server's saved name for a sample file of the
       // selected type (comic types preview the archive naming rules).
@@ -301,18 +309,19 @@
       const overallPct = computed(() =>
         pendingFiles.length ? Math.round(doneCount.value / pendingFiles.length * 100) : 0);
       const primaryLabel = computed(() => {
-        if (busy.value) return 'Baking… ' + doneCount.value + '/' + pendingFiles.length;
-        if (pendingCount.value) return 'Bake ' + pendingCount.value + (pendingCount.value === 1 ? ' file' : ' files');
-        return 'Bake files';
+        if (busy.value) return t('actionbar.baking', { done: doneCount.value, total: pendingFiles.length });
+        if (pendingCount.value) return t('actionbar.bake', pendingCount.value);
+        return t('actionbar.bakeAll');
       });
       const elapsedText = computed(() => busy.value ? formatElapsed(now.value - elapsedStart) : '');
-      const prettyMetaList = computed(() => prettyMeta(metadata.value));
+      const prettyMetaList = computed(() => prettyMeta(t, metadata.value));
       const metaSource = computed(() => (metadata.value && metadata.value.Source) || '');
       const srStatus = computed(() => {
         if (!pendingFiles.length) return '';
-        return doneCount.value + ' of ' + pendingFiles.length + ' files done. ' +
-          successCount.value + ' baked, ' + failCount.value + ' failed, ' +
-          runningCount.value + ' running.';
+        return t('sr.status', {
+          done: doneCount.value, total: pendingFiles.length,
+          ok: successCount.value, fail: failCount.value, run: runningCount.value
+        });
       });
 
       // -------------------------------------------------------------
@@ -379,7 +388,7 @@
             skip: false,
             expanded: false,
             details: null,
-            facts: [],
+            factData: null,
             savedName: null,
             throttleRetries: 0,
             retryAt: 0,
@@ -388,12 +397,12 @@
           if (f.size > MAX_FILE_SIZE) {
             item.status = 'error';
             item.skip = true;
-            item.error = 'File too large — max 500 MB';
+            item.error = t('errors.tooLarge');
           }
           pendingFiles.push(item);
           added++;
         }
-        if (added) toast(added + (added === 1 ? ' file added' : ' files added'), 'info');
+        if (added) toast(t('toasts.added', added), 'info');
       }
 
       function removeFile(entry) {
@@ -401,9 +410,27 @@
         if (i !== -1) pendingFiles.splice(i, 1);
       }
 
+      function hasDetails(entry) {
+        return !!(entry.details && Object.keys(entry.details).length);
+      }
       function toggleDetails(entry) {
-        if (!entry.details || !entry.details.length) return;
+        if (!hasDetails(entry)) return;
         entry.expanded = !entry.expanded;
+      }
+      function factsOf(entry) {
+        const d = entry.factData;
+        if (!d) return [];
+        const facts = [t('facts.attempts', { n: d.attempts })];
+        if (d.comic) {
+          // Comic archives skip Calibre/Ghostscript — report the ComicInfo.xml outcome instead.
+          facts.push(d.comicInfo ? t('facts.comicInfoYes') : t('facts.comicInfoNo'));
+          if (d.pages) facts.push(t('facts.pages', { n: d.pages }));
+        } else {
+          facts.push(d.direct ? t('facts.directOk') : t('facts.directFail'));
+          if (d.repair !== undefined) facts.push(d.repair ? t('facts.repairOk') : t('facts.repairFail'));
+          if (d.gs) facts.push(t('facts.gsRan'));
+        }
+        return facts;
       }
 
       function toggleError(entry) {
@@ -436,11 +463,11 @@
         if (!title.value.trim()) {
           titleTouched.value = true;
           if (titleInput.value) titleInput.value.focus();
-          toast('Enter the book title first', 'warn');
+          toast(t('toasts.enterTitle'), 'warn');
           return;
         }
         if (!pendingCount.value) {
-          toast('Add at least one PDF, EPUB or comic file', 'warn');
+          toast(t('toasts.addFiles'), 'warn');
           return;
         }
         // A new title means the old metadata card no longer applies
@@ -471,8 +498,8 @@
             busy.value = false;
             const failed = failCount.value;
             const ok = successCount.value;
-            if (ok && !failed) toast(ok + (ok === 1 ? ' file' : ' files') + ' baked successfully', 'success');
-            else if (failed) toast(failed + (failed === 1 ? ' file failed' : ' files failed'), 'error');
+            if (ok && !failed) toast(t('toasts.baked', ok), 'success');
+            else if (failed) toast(t('toasts.failed', failed), 'error');
           }
         }
 
@@ -490,7 +517,7 @@
             }
           }
         }
-        toast('Canceled — queued files were not started', 'info');
+        toast(t('toasts.canceled'), 'info');
       }
 
       function retryFailed() {
@@ -505,7 +532,7 @@
             f.throttleRetries = 0;
             f.savedName = null;
             f.details = null;
-            f.facts = [];
+            f.factData = null;
             n++;
           }
         }
@@ -558,7 +585,7 @@
             entry.retryAt = Date.now() + wait * 1000;
             entry.status = 'throttled';
             entry.progress = 0;
-            toast('Rate limit hit — ' + shortName(entry.name) + ' retries in ' + wait + 's', 'warn');
+            toast(t('toasts.rateLimit', { name: shortName(entry.name), n: wait }), 'warn');
             setTimeout(() => {
               if (cancelFlag || entry.status !== 'throttled') { finish(); return; }
               entry.status = 'uploading';
@@ -573,14 +600,14 @@
               if (entry.status === 'success') entry.progress = 100;
             } catch {
               entry.status = 'error';
-              entry.error = 'Unexpected server response';
+              entry.error = t('errors.unexpected');
             }
           } else {
             entry.status = 'error';
             entry.error = httpErrorMessage(xhr);
             if (xhr.status === 429) {
               // retries exhausted
-              entry.error = 'Rate limit exceeded — wait a minute, then retry';
+              entry.error = t('errors.rateLimit');
             }
           }
           finish();
@@ -588,12 +615,12 @@
 
         xhr.onerror = () => {
           entry.status = 'error';
-          entry.error = 'Network error — could not reach the server';
+          entry.error = t('errors.network');
           finish();
         };
         xhr.ontimeout = () => {
           entry.status = 'error';
-          entry.error = 'Request timed out (30 min)';
+          entry.error = t('errors.timeout');
           try { xhr.abort(); } catch { /* noop */ }
           finish();
         };
@@ -622,9 +649,9 @@
       }
 
       function httpErrorMessage(xhr) {
-        if (xhr.status === 401) return 'Unauthorized — set the correct API key';
-        if (xhr.status === 429) return 'Rate limit exceeded — wait a minute, then retry';
-        if (xhr.status === 499) return 'Request was canceled';
+        if (xhr.status === 401) return t('errors.unauthorized');
+        if (xhr.status === 429) return t('errors.rateLimit');
+        if (xhr.status === 499) return t('errors.canceled');
 
         let body = (xhr.responseText || '').trim();
         if (body) {
@@ -646,7 +673,8 @@
           } catch { /* keep raw text */ }
           body = body.slice(0, 1000);
         }
-        return body || ('Upload failed (HTTP ' + xhr.status + ')');
+        // Server-provided bodies stay in the language the server sent them.
+        return body || t('errors.http', { status: xhr.status });
       }
 
       function handleSingleResult(entry, data) {
@@ -655,31 +683,26 @@
         const fileResult = filesArr[0];
         if (!fileResult) {
           entry.status = 'error';
-          entry.error = 'No file result in response';
+          entry.error = t('errors.noResult');
           return;
         }
 
         entry.savedName = pick(fileResult, 'File', 'file') || null;
         entry.attempts = pick(fileResult, 'Attempts', 'attempts') || 0;
-        entry.details = prettyMeta(pick(fileResult, 'AppliedMetadata', 'appliedMetadata'));
+        // Raw API metadata; labels are localized at render time (detailsOf).
+        entry.details = pick(fileResult, 'AppliedMetadata', 'appliedMetadata') || null;
 
         const direct = pick(fileResult, 'DirectAttemptSuccess', 'directAttemptSuccess');
         const repair = pick(fileResult, 'RepairAttemptSuccess', 'repairAttemptSuccess');
         const gs = pick(fileResult, 'GhostscriptRan', 'ghostscriptRan');
         const comicInfo = pick(fileResult, 'ComicInfoWritten', 'comicInfoWritten');
         const pages = pick(fileResult, 'PageCount', 'pageCount');
-        const facts = [];
-        facts.push('Attempts: ' + (entry.attempts || 1));
-        if (COMIC_EXTS.includes(entry.ext)) {
-          // Comic archives skip Calibre/Ghostscript — report the ComicInfo.xml outcome instead.
-          facts.push(comicInfo ? 'ComicInfo.xml: embedded' : 'ComicInfo.xml: not embedded');
-          if (pages) facts.push('Pages: ' + pages);
-        } else {
-          facts.push(direct ? 'Direct embed: ok' : 'Direct embed: failed');
-          if (repair !== undefined) facts.push('Repair pass: ' + (repair ? 'ok' : 'failed'));
-          if (gs) facts.push('Ghostscript repair: ran');
-        }
-        entry.facts = facts;
+        // Raw outcome flags; text is localized at render time (factsOf).
+        entry.factData = {
+          attempts: entry.attempts || 1,
+          comic: COMIC_EXTS.includes(entry.ext),
+          comicInfo, pages, direct, repair, gs
+        };
 
         const md = pick(data, 'Metadata', 'metadata');
         if (md && Object.keys(md).length &&
@@ -694,7 +717,8 @@
           entry.error = null;
         } else {
           entry.status = 'error';
-          entry.error = pick(fileResult, 'ErrorMessage', 'errorMessage') || 'Unknown error';
+          // ErrorMessage comes from the server — shown as-is.
+          entry.error = pick(fileResult, 'ErrorMessage', 'errorMessage') || t('errors.unknown');
         }
       }
 
@@ -703,18 +727,26 @@
       // -------------------------------------------------------------
       function phaseText(f) {
         switch (f.status) {
-          case 'pending': return 'Waiting in queue';
-          case 'uploading': return 'Uploading…';
-          case 'processing': return 'Fetching metadata & embedding…';
+          case 'pending': return t('phase.pending');
+          case 'uploading': return t('phase.uploading');
+          case 'processing': return t('phase.processing');
           case 'throttled': {
             const s = Math.max(0, Math.ceil((f.retryAt - now.value) / 1000));
-            return 'Rate limit — retrying in ' + s + 's';
+            return t('phase.throttled', { n: s });
           }
-          case 'success': return 'Saved as ' + (f.savedName || 'file');
-          case 'canceled': return 'Canceled';
-          case 'error': return 'Failed';
+          case 'success': return t('phase.success', { name: f.savedName || 'file' });
+          case 'canceled': return t('phase.canceled');
+          case 'error': return t('phase.error');
           default: return '';
         }
+      }
+
+      function detailsOf(entry) {
+        return hasDetails(entry) ? prettyMeta(t, entry.details) : null;
+      }
+      function fileAriaLabel(f) {
+        return f.name + ', ' + statusLabel(t, f.status) +
+          (hasDetails(f) ? t('sr.detailsHint') : '');
       }
 
       // -------------------------------------------------------------
@@ -764,6 +796,7 @@
       // -------------------------------------------------------------
       return {
         types: TYPES,
+        locale, setLocale, locales: BMB_I18N.locales,
         title, titleTouched, titleInput, type, apiKey, authRequired, theme,
         filesInput, pendingFiles, busy, windowDrag, lastIgnored,
         metadata, toasts, year,
@@ -772,9 +805,13 @@
         maxConcurrent: MAX_CONCURRENT,
         onFiles, dragEnter, dragLeave, onDrop,
         start, cancelAll, retryFailed, clearFinished, removeFile, toggleDetails, toggleError,
-        formatSize, statusLabel, phaseText, predictedName, linkHtml, errorHeadline, errorIsDetailed,
+        formatSize, statusLabel: s => statusLabel(t, s), phaseText, fileAriaLabel,
+        hasDetails, detailsOf, factsOf,
+        predictedName, linkHtml, errorHeadline, errorIsDetailed,
         saveApiKey, saveType, cycleTheme
       };
     }
-  }).mount('#app');
+  });
+  app.use(i18n);
+  app.mount('#app');
 })();
