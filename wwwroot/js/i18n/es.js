@@ -14,7 +14,7 @@
   window.BMB_I18N_ES = {
     pluralRules: esPlural,
     messages: {
-      docTitle: 'Books Metadata Baker — Añade tus eBooks',
+      docTitle: 'Books Metadata Baker — Añade tus Ebooks',
       brand: 'Metadatos para tus libros, horneados con amor',
       theme: {
         light: 'claro',
@@ -37,11 +37,11 @@
         sub: 'Los añadiremos directamente a la cola de horneado'
       },
       hero: {
-        h1: 'Hornea tu colección de eBooks',
+        h1: 'Hornea tu colección de Ebooks',
         lede: 'Sube tus archivos PDF, EPUB o archivos de cómic (CBZ, CBR, CB7, CBT). Books Metadata Baker recopila con cariño los detalles de {anilist}, {google} y {comicvine}, los integra con Calibre o ComicInfo.xml, corrige pequeños detalles de PDF con Ghostscript y genera archivos listos para Kavita.'
       },
       step1: {
-        heading: '1. Detalles del libro',
+        heading: 'Detalles del libro',
         title: 'Título',
         titlePlaceholder: 'Título de la serie o libro, ej. The Saga of Tanya the Evil',
         titleRequired: 'Por favor, introduce un título.',
@@ -59,7 +59,7 @@
         Comic: 'Cómic'
       },
       step2: {
-        heading: '2. Archivos eBook',
+        heading: 'Archivos Ebook',
         selected: '{n} archivo listo · máx. 500 MB cada uno | {n} archivos listos · máx. 500 MB cada uno',
         browse: 'buscar en el dispositivo',
         dzTitle: 'Arrastra y suelta tus archivos aquí, o {browse}',
@@ -71,12 +71,9 @@
         details: 'detalles ▾',
         hideDetails: 'ocultar detalles ▴',
         errorDetails: 'ver qué ha pasado ▾',
+        createdArchives: 'Archivos creados',
         emptyState: 'Tu estantería está vacía por ahora — ¡suelta algunos PDF, EPUB o archivos de cómic arriba y haz clic en {bake}!',
         parallel: 'Hasta {n} archivos procesados en paralelo. Los límites del servidor se gestionan suavemente — los archivos en cola esperarán pacientemente y reintentarán automáticamente.'
-      },
-      meta: {
-        heading: 'Metadatos recién horneados',
-        from: 'obtenidos de {source}'
       },
       actionbar: {
         done: '{done} de {total} completados',
@@ -139,6 +136,7 @@
         comicInfoYes: 'ComicInfo.xml: integrado con cariño',
         comicInfoNo: 'ComicInfo.xml: no integrado',
         pages: 'Páginas: {n}',
+        split: 'dividido en {n} archivo|dividido en {n} archivos',
         directOk: 'Integración directa: con éxito',
         directFail: 'Integración directa: fallida',
         repairOk: 'Reparación de PDF: con éxito',

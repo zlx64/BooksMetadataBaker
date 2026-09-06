@@ -518,4 +518,155 @@ public sealed class ArchiveComicInfoWriterTests : IDisposable
     {
         Assert.Equal(expected, ArchiveComicInfoWriter.IsPageEntry(name));
     }
+
+    // --- Entry listing ----------------------------------------------------------
+
+    [Fact]
+    public async Task ListEntries_Zip_ReturnsForwardSlashedNames()
+    {
+        var writer = CreateWriter();
+        var path = CreateCbz(Path.Combine(_dir, "list.cbz"),
+            ("Series v1/001.png", null), ("Series v2/001.png", null), ("ComicInfo.xml", "<x/>"));
+
+        var (ok, names, err) = await writer.ListEntriesAsync(path, CancellationToken.None);
+
+        Assert.True(ok, err);
+        Assert.Contains("Series v1/001.png", names);
+        Assert.Contains("Series v2/001.png", names);
+        Assert.Contains("ComicInfo.xml", names);
+    }
+
+    [Fact]
+    public async Task ListEntries_Tar_ReturnsNames()
+    {
+        var writer = CreateWriter();
+        var path = await CreateCbtAsync(Path.Combine(_dir, "list.cbt"),
+            ("Series v1/001.png", null), ("Series v2/001.png", null));
+
+        var (ok, names, err) = await writer.ListEntriesAsync(path, CancellationToken.None);
+
+        Assert.True(ok, err);
+        Assert.Equal(2, names.Count);
+        Assert.Contains("Series v1/001.png", names);
+    }
+
+    [Fact]
+    public async Task ListEntries_UnsupportedExtension_Fails()
+    {
+        var writer = CreateWriter();
+
+        var (ok, names, err) = await writer.ListEntriesAsync(Path.Combine(_dir, "book.pdf"), CancellationToken.None);
+
+        Assert.False(ok);
+        Assert.Empty(names);
+        Assert.Equal("Unsupported archive format", err);
+    }
+
+    // --- Multi-volume split -------------------------------------------------------
+
+    private static MultiVolumeSplitPlan PlanFor(params (string Volume, string Prefix)[] parts) =>
+        new(parts.Select(p => new MultiVolumePart(p.Volume, p.Prefix, 1)).ToList());
+
+    [Fact]
+    public async Task SplitToCbz_SplitsVolumeFolders_EachWithOwnComicInfo()
+    {
+        var writer = CreateWriter();
+        var src = CreateCbz(Path.Combine(_dir, "multi.cbz"),
+            ("Series v1/001.png", null), ("Series v1/002.png", null),
+            ("Series v2/001.png", null),
+            ("ComicInfo.xml", "<stale/>"));
+        var sidecar = src + ".meta.json";
+        File.WriteAllText(sidecar, "{}");
+
+        var plan = PlanFor(("1", "Series v1/"), ("2", "Series v2/"));
+        Func<string, string> nameFor = vol => $"Series - Volume {vol}.cbz";
+        var (ok, newPaths, err) = await writer.SplitToCbzAsync(
+            src, plan, ["<xml-v1/>", "<xml-v2/>"], _dir, nameFor, CancellationToken.None);
+
+        Assert.True(ok, err);
+        Assert.Equal(2, newPaths.Count);
+        Assert.False(File.Exists(src));
+        Assert.False(File.Exists(sidecar));
+
+        using var zip1 = ZipFile.OpenRead(newPaths[0]);
+        Assert.Equal(["001.png", "002.png", "ComicInfo.xml"], zip1.Entries.Select(e => e.FullName).OrderBy(n => n).ToList());
+        Assert.Equal("<xml-v1/>", await ReadEntryTextAsync(zip1, "ComicInfo.xml"));
+
+        using var zip2 = ZipFile.OpenRead(newPaths[1]);
+        Assert.Equal(["001.png", "ComicInfo.xml"], zip2.Entries.Select(e => e.FullName).OrderBy(n => n).ToList());
+        Assert.Equal("<xml-v2/>", await ReadEntryTextAsync(zip2, "ComicInfo.xml"));
+    }
+
+    [Fact]
+    public async Task SplitToCbz_PreservesNestedStructureUnderVolumeFolder()
+    {
+        var writer = CreateWriter();
+        var src = CreateCbz(Path.Combine(_dir, "nested.cbz"),
+            ("Set/Series v1/001.png", null),
+            ("Set/Series v2/nested/001.png", null), ("Set/Series v2/nested/002.png", null));
+
+        var plan = PlanFor(("1", "Set/Series v1/"), ("2", "Set/Series v2/"));
+        var (ok, newPaths, err) = await writer.SplitToCbzAsync(
+            src, plan, ["<v1/>", "<v2/>"], _dir, vol => $"Vol {vol}.cbz", CancellationToken.None);
+
+        Assert.True(ok, err);
+        using var zip2 = ZipFile.OpenRead(newPaths[1]);
+        Assert.Contains("nested/001.png", zip2.Entries.Select(e => e.FullName));
+        Assert.Contains("nested/002.png", zip2.Entries.Select(e => e.FullName));
+    }
+
+    [Fact]
+    public async Task SplitToCbz_FailureLeavesSourceIntactAndNoPartialOutputs()
+    {
+        var writer = CreateWriter();
+        // Plan references a folder that does not exist -> extraction succeeds,
+        // the first part fails, source and any partial output must survive/vanish correctly.
+        var src = CreateCbz(Path.Combine(_dir, "badplan.cbz"),
+            ("Series v1/001.png", null), ("Series v2/001.png", null));
+        var missing = Path.Combine(_dir, "Series - Volume 9.cbz");
+
+        var plan = PlanFor(("1", "Series v1/"), ("9", "DoesNotExist/"));
+        var (ok, newPaths, err) = await writer.SplitToCbzAsync(
+            src, plan, ["<v1/>", "<v9/>"], _dir, vol => $"Series - Volume {vol}.cbz", CancellationToken.None);
+
+        Assert.False(ok);
+        Assert.Contains("DoesNotExist/", err);
+        Assert.Empty(newPaths);
+        Assert.True(File.Exists(src));
+        Assert.False(File.Exists(missing));
+    }
+
+    [Fact]
+    public async Task SplitToCbz_OverlappingSourcePath_SourceNotDeletedTwice()
+    {
+        var writer = CreateWriter();
+        // The volume-1 part is named exactly like the source archive; the move
+        // replaces the source, so the source must not be deleted afterwards.
+        var src = CreateCbz(Path.Combine(_dir, "Series - Volume 1.cbz"),
+            ("Series v1/001.png", null), ("Series v2/001.png", null));
+
+        var plan = PlanFor(("1", "Series v1/"), ("2", "Series v2/"));
+        var (ok, newPaths, err) = await writer.SplitToCbzAsync(
+            src, plan, ["<v1/>", "<v2/>"], _dir, vol => $"Series - Volume {vol}.cbz", CancellationToken.None);
+
+        Assert.True(ok, err);
+        Assert.Equal(2, newPaths.Count);
+        Assert.True(File.Exists(Path.Combine(_dir, "Series - Volume 1.cbz")));
+        Assert.True(File.Exists(Path.Combine(_dir, "Series - Volume 2.cbz")));
+    }
+
+    [Fact]
+    public async Task SplitToCbz_MismatchedXmlCount_FailsFast()
+    {
+        var writer = CreateWriter();
+        var src = CreateCbz(Path.Combine(_dir, "mismatch.cbz"), ("Series v1/001.png", null));
+
+        var (ok, _, err) = await writer.SplitToCbzAsync(
+            src, PlanFor(("1", "Series v1/")), ["<v1/>", "<extra/>"], _dir,
+            vol => $"Vol {vol}.cbz", CancellationToken.None);
+
+        Assert.False(ok);
+        Assert.Equal("Split plan and XML count mismatch", err);
+        Assert.True(File.Exists(src));
+    }
 }

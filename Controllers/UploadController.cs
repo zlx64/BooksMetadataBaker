@@ -38,11 +38,11 @@ public class UploadController(IUploadProcessingService processor, IConfiguration
             return BadRequest("Title required");
 
         if (file is null) 
-            return BadRequest($"eBook or comic file required ({AllowedExtensionsText})");
+            return BadRequest($"Ebook or comic file required ({AllowedExtensionsText})");
 
         var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
         if (!allowedExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase))
-            return BadRequest($"eBook or comic file required ({AllowedExtensionsText})");
+            return BadRequest($"Ebook or comic file required ({AllowedExtensionsText})");
 
         // Everything that is not PDF/EPUB is a comic archive; reject it when the
         // feature is disabled (plan §4.8).

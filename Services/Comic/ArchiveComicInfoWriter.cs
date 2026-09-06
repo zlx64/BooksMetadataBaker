@@ -502,6 +502,225 @@ public class ArchiveComicInfoWriter : IArchiveComicInfoWriter
         }
     }
 
+    // --- Entry listing / multi-volume split ----------------------------------
+
+    public Task<(bool Ok, IReadOnlyList<string> Names, string? Error)> ListEntriesAsync(string path, CancellationToken ct)
+    {
+        return Path.GetExtension(path).ToLowerInvariant() switch
+        {
+            ".cbz" => ListZipEntries(path),
+            ".cbt" => ListTarEntriesAsync(path, ct),
+            ".cb7" or ".cbr" => ListSevenZipEntriesAsync(path, ct),
+            _ => Task.FromResult<(bool, IReadOnlyList<string>, string?)>((false, Array.Empty<string>(), "Unsupported archive format"))
+        };
+    }
+
+    private Task<(bool Ok, IReadOnlyList<string> Names, string? Error)> ListZipEntries(string path)
+    {
+        try
+        {
+            using var zip = ZipFile.OpenRead(path);
+            var names = zip.Entries.Select(e => e.FullName.Replace('\\', '/')).ToList();
+            return Task.FromResult<(bool, IReadOnlyList<string>, string?)>((true, names, null));
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to list entries in {File}", path);
+            return Task.FromResult<(bool, IReadOnlyList<string>, string?)>((false, Array.Empty<string>(), ex.Message));
+        }
+    }
+
+    private async Task<(bool Ok, IReadOnlyList<string> Names, string? Error)> ListTarEntriesAsync(string path, CancellationToken ct)
+    {
+        try
+        {
+            var names = new List<string>();
+            await using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+            await using var tar = new TarReader(fs, leaveOpen: true);
+            while (true)
+            {
+                var entry = await tar.GetNextEntryAsync(copyData: false, ct);
+                if (entry is null)
+                    break;
+                names.Add(entry.Name.Replace('\\', '/'));
+            }
+            return (Ok: true, Names: names, Error: (string?)null);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to list entries in {File}", path);
+            return (Ok: false, Names: Array.Empty<string>(), Error: ex.Message);
+        }
+    }
+
+    private async Task<(bool Ok, IReadOnlyList<string> Names, string? Error)> ListSevenZipEntriesAsync(string path, CancellationToken ct)
+    {
+        var exe = ResolveSevenZip();
+        if (exe is null)
+        {
+            logger.LogWarning("Cannot list {File}: 7-Zip not available", path);
+            return (Ok: false, Names: Array.Empty<string>(), Error: "7-Zip not available");
+        }
+
+        try
+        {
+            var (ok, _, stdout, stderr, runErr) = await ProcessRunner.RunAsync(
+                exe, ["l", "-slt", path], logger, SevenZipTimeoutMs, ct);
+            if (!ok || runErr is not null)
+                return (Ok: false, Names: Array.Empty<string>(), Error: runErr ?? (stderr + stdout).Trim());
+
+            // -slt emits one block per entry after the first "----------" separator;
+            // the block's "Path =" line is the entry name and "Attributes =" carries
+            // 'D' for directories (containers that store directory entries).
+            var names = new List<string>();
+            var inEntries = false;
+            string? current = null;
+            foreach (var rawLine in stdout.Split('\n'))
+            {
+                var line = rawLine.TrimEnd('\r');
+                if (!inEntries)
+                {
+                    if (line == "----------")
+                        inEntries = true;
+                    continue;
+                }
+                if (line.StartsWith("Path = ", StringComparison.Ordinal))
+                {
+                    if (current is not null)
+                        names.Add(current);
+                    current = line["Path = ".Length..];
+                }
+                else if (line.StartsWith("Attributes = ", StringComparison.Ordinal) && current is not null)
+                {
+                    names.Add(line["Attributes = ".Length..].Contains('D') ? current + "/" : current);
+                    current = null;
+                }
+            }
+            if (current is not null)
+                names.Add(current);
+
+            return (Ok: true, Names: names, Error: (string?)null);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to list entries in {File}", path);
+            return (Ok: false, Names: Array.Empty<string>(), Error: ex.Message);
+        }
+    }
+
+    public async Task<(bool Ok, IReadOnlyList<string> NewPaths, string? Error)> SplitToCbzAsync(
+        string path,
+        MultiVolumeSplitPlan plan,
+        IReadOnlyList<string> xmls,
+        string targetDir,
+        Func<string, string> fileNameForVolume,
+        CancellationToken ct)
+    {
+        if (xmls.Count != plan.Parts.Count)
+            return (false, Array.Empty<string>(), "Split plan and XML count mismatch");
+
+        var ext = Path.GetExtension(path).ToLowerInvariant();
+        if (ext is not (".cbz" or ".cbt" or ".cb7" or ".cbr"))
+            return (false, Array.Empty<string>(), "Unsupported archive format");
+
+        var workDir = NewWorkDir("split");
+        var written = new List<string>(plan.Parts.Count);
+        var ok = false;
+        try
+        {
+            // 1. Extract the source once (uniform for all containers).
+            switch (ext)
+            {
+                case ".cbz":
+                    ZipFile.ExtractToDirectory(path, workDir, overwriteFiles: true);
+                    break;
+                case ".cbt":
+                    await TarFile.ExtractToDirectoryAsync(path, workDir, overwriteFiles: true, ct);
+                    break;
+                default: // .cb7 or .cbr — 7-Zip reads both.
+                    var exe = ResolveSevenZip();
+                    if (exe is null)
+                        return (false, Array.Empty<string>(), "7-Zip not available — cannot split archive");
+                    var (xOk, _, xOut, xErr, xRunErr) = await ProcessRunner.RunAsync(
+                        exe, BuildExtractArgs(path, workDir), logger, SevenZipTimeoutMs, ct);
+                    if (!xOk || xRunErr is not null)
+                        return (false, Array.Empty<string>(), $"7-Zip extract failed: {xRunErr ?? (xErr + xOut).Trim()}");
+                    break;
+            }
+
+            Directory.CreateDirectory(targetDir);
+
+            // 2. One .cbz per volume folder, each with its own root ComicInfo.xml.
+            for (var i = 0; i < plan.Parts.Count; i++)
+            {
+                var part = plan.Parts[i];
+                var folder = Path.Combine(
+                    workDir,
+                    part.FolderPrefix.Replace('/', Path.DirectorySeparatorChar).TrimEnd(Path.DirectorySeparatorChar));
+                if (!Directory.Exists(folder))
+                {
+                    // Defensive: the plan was computed from the entry list, so this
+                    // should not happen (e.g. directory entries the container hid).
+                    return (false, Array.Empty<string>(), $"Volume folder not found after extraction: {part.FolderPrefix}");
+                }
+
+                var target = Path.Combine(targetDir, fileNameForVolume(part.Volume));
+                var tmpPath = NewTempPath(target);
+                var xmlBytes = Encoding.UTF8.GetBytes(xmls[i]);
+
+                await using (var dst = new FileStream(tmpPath, FileMode.Create, FileAccess.Write, FileShare.None, 4096, FileOptions.Asynchronous))
+                await using (var zip = new ZipArchive(dst, ZipArchiveMode.Create, leaveOpen: true))
+                {
+                    foreach (var file in Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories))
+                    {
+                        // Preserve the folder-internal structure, '/'-separated (ZIP convention).
+                        var rel = Path.GetRelativePath(folder, file).Replace('\\', '/');
+                        var entry = zip.CreateEntry(rel, CompressionLevel.NoCompression);
+                        await using var inStream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.Asynchronous);
+                        await using var outStream = await entry.OpenAsync(ct);
+                        await inStream.CopyToAsync(outStream, ct);
+                    }
+
+                    var xmlEntry = zip.CreateEntry(ComicInfoXmlWriter.FileName, CompressionLevel.Optimal);
+                    await using var xs = await xmlEntry.OpenAsync(ct);
+                    await xs.WriteAsync(xmlBytes, ct);
+                }
+
+                File.Move(tmpPath, target, overwrite: true);
+                written.Add(target);
+            }
+
+            // 3. All parts written — remove the source (and its sidecar). A part may
+            //    legitimately share the source's path (same volume, .cbz source);
+            //    File.Move already replaced it, so don't delete it twice.
+            if (!written.Any(w => string.Equals(w, path, PathComparison())))
+                TryDelete(path);
+            TryDelete(path + ".meta.json");
+
+            ok = true;
+            return (true, written, null);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to split {File} into volume archives", path);
+            return (false, Array.Empty<string>(), ex.Message);
+        }
+        finally
+        {
+            if (!ok)
+                foreach (var w in written)
+                    TryDelete(w);
+            MetadataTemp.Cleanup(workDir);
+        }
+    }
+
+    private static StringComparison PathComparison() =>
+        OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+
     // --- Helpers -------------------------------------------------------------
 
     private string? ResolveSevenZip()

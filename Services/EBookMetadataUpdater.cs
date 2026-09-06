@@ -58,7 +58,8 @@ public class EBookMetadataUpdater : IEBookMetadataUpdater
             direct.Success,
             direct.ErrorMessage,
             false,
-            direct.Success));
+            direct.Success,
+            []));
 
         if (ct.IsCancellationRequested || direct.Success)
             return attempts;
@@ -72,7 +73,8 @@ public class EBookMetadataUpdater : IEBookMetadataUpdater
                 repair.Success,
                 repair.ErrorMessage,
                 repair.GhostscriptRan,
-                repair.Success));
+                repair.Success,
+                []));
         }
         else if (format == EBookFormat.Pdf && !gsEnabled)
         {

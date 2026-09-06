@@ -125,27 +125,41 @@ public class UploadProcessingService(
                     // Comic/manga pipeline (plan §4.7): ComicInfo.xml embedding only —
                     // no Calibre/Ghostscript. CBR without a RAR tool is a partial
                     // success: the file was saved and organized, embedding skipped.
-                    var attempts = await comicMetadataUpdater.RunPipelineAsync(savePath, meta, info.Title, parsed!, info.Type, ct);
+                    // A verifiable multi-volume archive is split into one archive per
+                    // volume (named by the same convention as single archives).
+                    Func<string, string> splitName = vol =>
+                        Path.GetFileName(GetArchiveSavePath(
+                            saveDir, folderTitle, ".cbz",
+                            new ParsedComicFilename(vol, null, false, null, null), specialsSubfolder));
+                    var attempts = await comicMetadataUpdater.RunPipelineAsync(savePath, meta, info.Title, parsed!, info.Type, ct, splitName);
+                    var comicAttempt = attempts.FirstOrDefault(a => a.Stage == EBookMetadataAttemptStage.ComicInfo);
                     // The pipeline may have converted the archive to a .cbz (e.g. no RAR tool
-                    // for .cbr, or an in-place write failure); use the (possibly new) path for
-                    // all downstream bookkeeping.
-                    var finalPath = attempts.FirstOrDefault(a => a.Stage == EBookMetadataAttemptStage.ComicInfo)?.FilePath ?? savePath;
+                    // for .cbr, or an in-place write failure) or split it into several; use
+                    // the (possibly new) paths for all downstream bookkeeping.
+                    var finalPath = comicAttempt?.FilePath ?? savePath;
+                    var outputPaths = new List<string> { finalPath };
+                    if (comicAttempt is { Success: true, AdditionalFilePaths.Count: > 0 })
+                        outputPaths.AddRange(comicAttempt.AdditionalFilePaths);
                     // If the pipeline repackaged the archive as a .cbz, reflect the new format.
                     // Any other (unchanged) path keeps its original format.
                     var finalFormat = finalPath.EndsWith(".cbz", StringComparison.OrdinalIgnoreCase)
                         ? EBookFormat.Cbz
                         : format;
-                    var comicOk = attempts.Any(a => a is { Stage: EBookMetadataAttemptStage.ComicInfo, Success: true });
-                    var rarPartial = attempts.Any(a => a is
+                    var comicOk = comicAttempt is { Success: true };
+                    var rarPartial = comicAttempt is
                     {
-                        Stage: EBookMetadataAttemptStage.ComicInfo,
                         Success: false,
                         ErrorMessage: ComicMetadataUpdater.RarToolMissingError
-                    });
+                    };
                     var success = comicOk || rarPartial;
                     var errorMessage = CombineErrors(attempts);
-                    metadataUpdater.WriteSidecarSummary(finalPath, meta, info.Title, success, errorMessage, comicOk, false);
+                    // Every output file gets its own sidecar (a split produces several).
+                    foreach (var outputPath in outputPaths)
+                        metadataUpdater.WriteSidecarSummary(outputPath, meta, info.Title, success, errorMessage, comicOk, false);
                     if (success) await kavitaWriter.WriteAsync(finalPath, meta, info.Title);
+                    var splitFileNames = outputPaths.Count > 1
+                        ? outputPaths.Select(p => Path.GetFileName(p)!).ToList()
+                        : new List<string>();
                     result = new(
                         File: Path.GetFileName(finalPath),
                         Success: success,
@@ -157,7 +171,10 @@ public class UploadProcessingService(
                         GhostscriptRan: false,
                         Format: finalFormat,
                         ComicInfoWritten: comicOk,
-                        PageCount: GetMetaPageCount(meta));
+                        PageCount: GetMetaPageCount(meta),
+                        SplitFiles: splitFileNames);
+                    if (splitFileNames.Count > 0)
+                        logger.LogInformation("Split {File} into {Count} volume archives in {Dir}", finalPath, splitFileNames.Count, saveDir);
                     if (rarPartial)
                         logger.LogWarning("ComicInfo.xml not embedded for {File}: {Error}", finalPath, errorMessage);
                 }
@@ -182,7 +199,8 @@ public class UploadProcessingService(
                         GhostscriptRan: ghostscriptRan,
                         Format: format,
                         ComicInfoWritten: false,
-                        PageCount: 0);
+                        PageCount: 0,
+                        SplitFiles: []);
                     if (!success && !string.IsNullOrWhiteSpace(errorMessage)) 
                         logger.LogWarning("Metadata update failed for {File}: {Errors}", savePath, errorMessage);
                 }
@@ -225,10 +243,10 @@ public class UploadProcessingService(
     }
 
     private static EBookUploadProcessResult CreateErrorResult(string fileName, string errorMessage, EBookFormat format, IDictionary<string, string> meta) =>
-        new(fileName, false, errorMessage, 0, meta, false, false, false, format, false, 0);
+        new(fileName, false, errorMessage, 0, meta, false, false, false, format, false, 0, []);
 
     private static EBookUploadProcessResult CreateCancelledResult(string fileName, EBookFormat format, IDictionary<string, string> meta) =>
-        new(fileName, false, "Cancelled", 0, meta, false, false, false, format, false, 0);
+        new(fileName, false, "Cancelled", 0, meta, false, false, false, format, false, 0, []);
 
     private static bool IsWritableDirectory(string path)
     {

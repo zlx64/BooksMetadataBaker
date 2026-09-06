@@ -45,6 +45,7 @@ public class UploadProcessingServiceTests
     private sealed class RecordingEBookUpdater : IEBookMetadataUpdater
     {
         public int PipelineCalls;
+        public List<string> SidecarPaths { get; } = [];
         public Task<IReadOnlyList<EBookMetadataAttemptResult>> RunPipelineAsync(string filePath, IDictionary<string, string> metadata, string fallbackTitle, CancellationToken ct)
         {
             PipelineCalls++;
@@ -52,15 +53,14 @@ public class UploadProcessingServiceTests
             return Task.FromResult(none);
         }
         public void WriteSidecarSummary(string filePath, IDictionary<string, string> metadata, string fallbackTitle, bool success, string? errors, bool metadataApplied, bool ghostscriptRan)
-        {
-        }
+            => SidecarPaths.Add(filePath);
     }
 
     private sealed class StubComicUpdater : IComicMetadataUpdater
     {
         private readonly IReadOnlyList<EBookMetadataAttemptResult> attempts;
         public StubComicUpdater(params EBookMetadataAttemptResult[] attempts) => this.attempts = attempts;
-        public Task<IReadOnlyList<EBookMetadataAttemptResult>> RunPipelineAsync(string filePath, IDictionary<string, string> metadata, string fallbackTitle, ParsedComicFilename parsed, BookType type, CancellationToken ct)
+        public Task<IReadOnlyList<EBookMetadataAttemptResult>> RunPipelineAsync(string filePath, IDictionary<string, string> metadata, string fallbackTitle, ParsedComicFilename parsed, BookType type, CancellationToken ct, Func<string, string>? splitFileNameForVolume = null)
             => Task.FromResult(attempts);
     }
 
@@ -272,7 +272,7 @@ public class UploadProcessingServiceTests
         var root = CreateTempDir();
         var ebook = new RecordingEBookUpdater();
         var kavita = new RecordingKavitaWriter();
-        var okAttempt = new EBookMetadataAttemptResult("x", EBookMetadataAttemptStage.ComicInfo, true, null, false, true);
+        var okAttempt = new EBookMetadataAttemptResult("x", EBookMetadataAttemptStage.ComicInfo, true, null, false, true, []);
         try
         {
             var svc = CreateService(root, ebook, new StubComicUpdater(okAttempt), kavita,
@@ -304,7 +304,7 @@ public class UploadProcessingServiceTests
         var root = CreateTempDir();
         var kavita = new RecordingKavitaWriter();
         var cbrAttempt = new EBookMetadataAttemptResult(
-            "x", EBookMetadataAttemptStage.ComicInfo, false, ComicMetadataUpdater.RarToolMissingError, false, false);
+            "x", EBookMetadataAttemptStage.ComicInfo, false, ComicMetadataUpdater.RarToolMissingError, false, false, []);
         try
         {
             var svc = CreateService(root, new RecordingEBookUpdater(), new StubComicUpdater(cbrAttempt), kavita,
@@ -336,7 +336,7 @@ public class UploadProcessingServiceTests
         // The pipeline converted the .cbr to a .cbz; it reports the new path.
         var cbzPath = Path.Combine(root, "Comic", "Book", "Specials", "Book SP01.cbz");
         var convertedAttempt = new EBookMetadataAttemptResult(
-            cbzPath, EBookMetadataAttemptStage.ComicInfo, true, null, false, true);
+            cbzPath, EBookMetadataAttemptStage.ComicInfo, true, null, false, true, []);
         try
         {
             var svc = CreateService(root, new RecordingEBookUpdater(), new StubComicUpdater(convertedAttempt), kavita,
@@ -360,12 +360,49 @@ public class UploadProcessingServiceTests
     }
 
     [Fact]
+    public async Task ProcessSingle_SplitArchive_ReportsAllFilesAndSidecars()
+    {
+        var root = CreateTempDir();
+        var kavita = new RecordingKavitaWriter();
+        var dir = Path.Combine(root, "Manga", "My Series");
+        var p1 = Path.Combine(dir, "My Series - Volume 1.cbz");
+        var p2 = Path.Combine(dir, "My Series - Volume 2.cbz");
+        var splitAttempt = new EBookMetadataAttemptResult(
+            p1, EBookMetadataAttemptStage.ComicInfo, true, null, false, true, [p2]);
+        var ebook = new RecordingEBookUpdater();
+        try
+        {
+            var svc = CreateService(root, ebook, new StubComicUpdater(splitAttempt), kavita,
+                new Dictionary<string, string> { ["Title"] = "My Series" });
+            var file = new FakeFormFile("My Series vol 01-02.cbz", [1, 2, 3]);
+
+            var (result, _, cancelled, error) = await svc.ProcessSingleAsync(
+                new UploadRequest { Title = "My Series", Type = BookType.Manga }, file, CancellationToken.None);
+
+            Assert.Null(error);
+            Assert.False(cancelled);
+            Assert.True(result.Success);
+            Assert.True(result.ComicInfoWritten);
+            Assert.Equal("My Series - Volume 1.cbz", result.File);
+            Assert.Equal(["My Series - Volume 1.cbz", "My Series - Volume 2.cbz"], result.SplitFiles);
+            Assert.Equal(EBookFormat.Cbz, result.Format);
+            Assert.Equal(1, kavita.Writes);
+            // Every split archive gets its own sidecar.
+            Assert.Equal([p1, p2], ebook.SidecarPaths);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task ProcessSingle_ArchiveWriteFailure_IsOverallFailure()
     {
         var root = CreateTempDir();
         var kavita = new RecordingKavitaWriter();
         var failAttempt = new EBookMetadataAttemptResult(
-            "x", EBookMetadataAttemptStage.ComicInfo, false, "disk full", false, false);
+            "x", EBookMetadataAttemptStage.ComicInfo, false, "disk full", false, false, []);
         try
         {
             var svc = CreateService(root, new RecordingEBookUpdater(), new StubComicUpdater(failAttempt), kavita,
@@ -395,7 +432,7 @@ public class UploadProcessingServiceTests
         var root = CreateTempDir();
         try
         {
-            var okAttempt = new EBookMetadataAttemptResult("x", EBookMetadataAttemptStage.ComicInfo, true, null, false, true);
+            var okAttempt = new EBookMetadataAttemptResult("x", EBookMetadataAttemptStage.ComicInfo, true, null, false, true, []);
             var svc = CreateService(root, new RecordingEBookUpdater(), new StubComicUpdater(okAttempt),
                 new RecordingKavitaWriter(), new Dictionary<string, string> { ["Title"] = "My Series" });
             var file = new FakeFormFile("My Series vol01.zip", [1, 2, 3]);
@@ -422,7 +459,7 @@ public class UploadProcessingServiceTests
         var root = CreateTempDir();
         try
         {
-            var okAttempt = new EBookMetadataAttemptResult("x", EBookMetadataAttemptStage.ComicInfo, true, null, false, true);
+            var okAttempt = new EBookMetadataAttemptResult("x", EBookMetadataAttemptStage.ComicInfo, true, null, false, true, []);
             var svc = CreateService(root, new RecordingEBookUpdater(), new StubComicUpdater(okAttempt),
                 new RecordingKavitaWriter(), new Dictionary<string, string> { ["Title"] = "My Series" });
             var file = new FakeFormFile("My Series ch02.7z", [1, 2, 3]);
@@ -448,7 +485,7 @@ public class UploadProcessingServiceTests
         try
         {
             var cbrAttempt = new EBookMetadataAttemptResult(
-                "x", EBookMetadataAttemptStage.ComicInfo, false, ComicMetadataUpdater.RarToolMissingError, false, false);
+                "x", EBookMetadataAttemptStage.ComicInfo, false, ComicMetadataUpdater.RarToolMissingError, false, false, []);
             var svc = CreateService(root, new RecordingEBookUpdater(), new StubComicUpdater(cbrAttempt),
                 new RecordingKavitaWriter(), new Dictionary<string, string> { ["Title"] = "Book" });
             var file = new FakeFormFile("Book.rar", [1]);
@@ -474,7 +511,7 @@ public class UploadProcessingServiceTests
         var root = CreateTempDir();
         try
         {
-            var okAttempt = new EBookMetadataAttemptResult("x", EBookMetadataAttemptStage.ComicInfo, true, null, false, true);
+            var okAttempt = new EBookMetadataAttemptResult("x", EBookMetadataAttemptStage.ComicInfo, true, null, false, true, []);
             var svc = CreateService(root, new RecordingEBookUpdater(), new StubComicUpdater(okAttempt),
                 new RecordingKavitaWriter(), new Dictionary<string, string> { ["Title"] = "My Series" });
             var file = new FakeFormFile("My Series vol01.tar", [1, 2, 3]);

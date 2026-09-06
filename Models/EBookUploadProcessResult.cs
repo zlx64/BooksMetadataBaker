@@ -11,4 +11,7 @@ public sealed record EBookUploadProcessResult(
     bool GhostscriptRan,
     EBookFormat Format,
     bool ComicInfoWritten,
-    int PageCount);
+    int PageCount,
+    // File names when a multi-volume archive was split into several archives
+    // (File is the first of them). Empty when the file was kept as a single archive.
+    IReadOnlyList<string> SplitFiles);

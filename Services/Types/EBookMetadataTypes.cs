@@ -6,7 +6,10 @@ public sealed record EBookMetadataAttemptResult(
     bool Success,
     string? ErrorMessage,
     bool GhostscriptRan,
-    bool MetadataApplied);
+    bool MetadataApplied,
+    // Additional output files when one input produced several (multi-volume split);
+    // FilePath is the first of them. Empty for the normal one-in-one-out flow.
+    IReadOnlyList<string> AdditionalFilePaths);
 
 public readonly record struct MetadataRequest(
     string FilePath,

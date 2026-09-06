@@ -43,4 +43,7 @@ public sealed class ComicInfoModel
     public string? StoryArcNumber { get; set; }
     public string? AlternativeSeries { get; set; }
     public string? AlternativeCount { get; set; }
+
+    /// <summary>Shallow copy for per-volume overrides (all fields are value types or immutable strings).</summary>
+    public ComicInfoModel Clone() => (ComicInfoModel)MemberwiseClone();
 }

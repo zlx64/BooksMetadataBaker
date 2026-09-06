@@ -1,15 +1,15 @@
 ﻿# Books Metadata Baker
 
-A modern ASP.NET Core web application for enriching eBook (PDF/EPUB) and comic archive (CBZ/CBR/CB7/CBT) metadata by fetching information from multiple online sources and organizing files for media server applications like Kavita.
+A modern ASP.NET Core web application for enriching Ebook (PDF/EPUB) and comic archive (CBZ/CBR/CB7/CBT) metadata by fetching information from multiple online sources and organizing files for media server applications like Kavita.
 
 ![.NET 10](https://img.shields.io/badge/.NET-10.0-512BD4)
 ![License](https://img.shields.io/github/license/zlx64/BooksMetadataBaker)
 
 ## Overview
 
-BooksMetadataBaker automatically enhances your eBook collection by:
+BooksMetadataBaker automatically enhances your Ebook collection by:
 - Fetching metadata from **AniList**, **Google Books**, and **ComicVine**
-- Embedding metadata into eBooks with Calibre's `ebook-meta` (EPUB OPF + PDF info)
+- Embedding metadata into Ebooks with Calibre's `ebook-meta` (EPUB OPF + PDF info)
 - Embedding `ComicInfo.xml` into comic archives (CBZ/CBR/CB7/CBT) for Kavita
 - Repairing broken PDFs with Ghostscript when `ebook-meta` fails
 - Writing a per-series `series.json` sidecar for Kavita-style workflows
@@ -52,15 +52,13 @@ BooksMetadataBaker automatically enhances your eBook collection by:
 
 ### User Interface
 - Clean, modern web UI built with Vue.js (self-hosted, no CDN — system fonts only, works fully offline)
-- Stepped workflow: **1. Book details** (title + segmented type picker with icons) → **2. eBook files**
+- Stepped workflow: **1. Book details** (title + segmented type picker with icons) → **2. Ebook files**
 - Whole-window drag & drop (drop anywhere on the page) or browse, with client-side 500 MB size check
 - Per-file rows: format badge, predicted saved filename (`Title - Volume N.ext`), phase text
   (Queued → Uploading % → Baking → Baked), inline errors, and expandable applied-metadata details
   (attempts, direct/repair embed, Ghostscript repair, full metadata fields)
 - Sticky bottom action bar: overall progress, baked/failed/running counts, elapsed time,
   **Bake files** (Ctrl+Enter), **Cancel**, **Retry failed**, **Clear finished**
-- "Baked metadata" summary card after the first successful response (authors, genres, publisher,
-  description, source link, …)
 - Server rate limiting (429) is handled automatically: throttled files wait (honoring the server's
   `Retry-After` header) and retry on their own, with a live countdown
 - API key field (stored in the browser's localStorage), shown only when the server enforces `API_KEY` (probed via `GET /api/config`)
@@ -215,8 +213,7 @@ Directory values can be **relative** (subfolder of `ROOT_DIR`) or **absolute** (
 5. Click **Bake files** (or press Ctrl+Enter)
 6. Monitor per-file and overall progress in the sticky action bar; use **Cancel**, **Retry failed**,
    or **Clear finished** as needed
-7. Inspect the **Baked metadata** card and expand any file row to see the applied metadata
-   and processing details (attempts, Ghostscript repair, saved filename)
+7. Expand any file row to see the applied metadata and processing details (attempts, Ghostscript repair, saved filename)
 
 ### API Endpoint
 
@@ -231,7 +228,7 @@ Parameters:
 - file (required): PDF, EPUB, or comic archive file (.pdf, .epub, .cbz, .cbr, .cb7, .cbt, or raw .zip, .rar, .7z, .tar)
 ```
 
-eBooks are saved as `<Title> - Volume <N>.<ext>` (Kavita-compatible filename format) inside the type folder / title folder. Re-uploading the same volume replaces the existing file.
+Ebooks are saved as `<Title> - Volume <N>.<ext>` (Kavita-compatible filename format) inside the type folder / title folder. Re-uploading the same volume replaces the existing file.
 
 Comic archives are named from their filename: volume marker → `<Title> - Volume N.ext`, chapter marker (no volume) → `<Title> - Chapter N.ext`, no markers (or an `SP##` marker) → `<Title> SP##.ext` in a `Specials/` subfolder of the title folder (disable-able via `MangaComics:SpecialsSubfolder`).
 
@@ -291,8 +288,8 @@ Per title folder:
 - **`series.json`**: Series-level metadata (merged across volumes, written atomically)
 - **`Specials/`** (comic archives): subfolder for specials/one-shots/artbooks without volume or chapter numbers
 
-Per eBook file:
-- **Processed eBook**: Original file with embedded metadata
+Per Ebook file:
+- **Processed Ebook**: Original file with embedded metadata
 - **`[filename].meta.json`**: Detailed processing log with all fetched metadata
 
 Per comic archive:

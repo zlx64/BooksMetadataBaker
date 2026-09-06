@@ -20,9 +20,18 @@ public class ComicMetadataUpdaterTests
         public bool ConvertOk { get; init; }
         public string? ConvertNewPath { get; init; }
         public string? ConvertError { get; init; }
+        // Multi-volume split outcome (default: listing yields no entries, so no split).
+        public IReadOnlyList<string> EntryNames { get; init; } = Array.Empty<string>();
+        public bool ListOk { get; init; } = true;
+        public string? ListError { get; init; }
+        public bool SplitOk { get; init; }
+        public IReadOnlyList<string> SplitNewPaths { get; init; } = Array.Empty<string>();
+        public string? SplitError { get; init; }
         public string? LastPath { get; private set; }
         public string? LastConvertPath { get; private set; }
         public string? WrittenXml { get; private set; }
+        public IReadOnlyList<string>? LastSplitXmls { get; private set; }
+        public Func<string, string>? LastSplitNamer { get; private set; }
 
         public Task<ComicInfoModel?> ReadExistingAsync(string path, CancellationToken ct) =>
             Task.FromResult(Existing);
@@ -41,6 +50,18 @@ public class ComicMetadataUpdaterTests
         {
             LastConvertPath = path;
             return Task.FromResult((ConvertOk, ConvertNewPath, ConvertError));
+        }
+
+        public Task<(bool Ok, IReadOnlyList<string> Names, string? Error)> ListEntriesAsync(string path, CancellationToken ct) =>
+            Task.FromResult((ListOk, EntryNames, ListError));
+
+        public Task<(bool Ok, IReadOnlyList<string> NewPaths, string? Error)> SplitToCbzAsync(
+            string path, MultiVolumeSplitPlan plan, IReadOnlyList<string> xmls,
+            string targetDir, Func<string, string> fileNameForVolume, CancellationToken ct)
+        {
+            LastSplitXmls = xmls;
+            LastSplitNamer = fileNameForVolume;
+            return Task.FromResult((SplitOk, SplitNewPaths, SplitError));
         }
     }
 
@@ -271,5 +292,141 @@ public class ComicMetadataUpdaterTests
             CancellationToken.None);
 
         Assert.DoesNotContain("<PageCount>", writer.WrittenXml);
+    }
+
+    // --- Multi-volume split ------------------------------------------------------
+
+    private static IReadOnlyList<string> MultiVolumeEntries => new[]
+    {
+        "Series v1/001.jpg", "Series v1/002.jpg",
+        "Series v2/001.jpg",
+    };
+
+    [Fact]
+    public async Task Pipeline_MultiVolumeArchive_SplitsWithPerVolumeComicInfo()
+    {
+        var writer = new StubArchiveWriter
+        {
+            EntryNames = MultiVolumeEntries,
+            SplitOk = true,
+            SplitNewPaths = new[] { @"C:\library\Series - Volume 1.cbz", @"C:\library\Series - Volume 2.cbz" }
+        };
+
+        var attempts = await Create(writer).RunPipelineAsync(
+            @"C:\library\Series - Volume 1-5.cbr",
+            new Dictionary<string, string> { ["Title"] = "Test Series", ["Publisher"] = "Acme" },
+            "Fallback Title",
+            Parsed(volume: "1-5"),
+            BookType.Manga,
+            CancellationToken.None,
+            vol => $"Series - Volume {vol}.cbz");
+
+        var attempt = Assert.Single(attempts);
+        Assert.True(attempt.Success);
+        Assert.True(attempt.MetadataApplied);
+        Assert.Equal(@"C:\library\Series - Volume 1.cbz", attempt.FilePath);
+        Assert.Equal([@"C:\library\Series - Volume 2.cbz"], attempt.AdditionalFilePaths);
+        // The single-archive write path must not have run.
+        Assert.Null(writer.WrittenXml);
+        Assert.Null(writer.LastPath);
+
+        Assert.Equal(2, writer.LastSplitXmls!.Count);
+        var xmls = writer.LastSplitXmls;
+        Assert.Contains("<Volume>1</Volume>", xmls[0]);
+        Assert.Contains("<PageCount>2</PageCount>", xmls[0]);
+        Assert.Contains("<Volume>2</Volume>", xmls[1]);
+        Assert.Contains("<PageCount>1</PageCount>", xmls[1]);
+        // Shared metadata is merged into every part.
+        Assert.Contains("<Series>Test Series</Series>", xmls[0]);
+        Assert.Contains("<Publisher>Acme</Publisher>", xmls[1]);
+    }
+
+    [Fact]
+    public async Task Pipeline_SplitNamerNotProvided_KeepsSingleArchivePath()
+    {
+        var writer = new StubArchiveWriter
+        {
+            EntryNames = MultiVolumeEntries,
+            SplitOk = true,
+            SplitNewPaths = new[] { @"C:\library\A.cbz" }
+        };
+
+        var attempts = await Create(writer).RunPipelineAsync(
+            @"C:\library\Book.cbr",
+            new Dictionary<string, string> { ["Title"] = "T" },
+            "Fallback",
+            Parsed(),
+            BookType.Manga,
+            CancellationToken.None);
+
+        Assert.True(Assert.Single(attempts).Success);
+        Assert.NotNull(writer.WrittenXml);
+        Assert.Null(writer.LastSplitXmls);
+    }
+
+    [Fact]
+    public async Task Pipeline_EntriesNotMultiVolume_KeepsSingleArchivePath()
+    {
+        var writer = new StubArchiveWriter
+        {
+            EntryNames = new[] { "Book/001.jpg", "Book/002.jpg" },
+            SplitOk = true
+        };
+
+        var attempts = await Create(writer).RunPipelineAsync(
+            @"C:\library\Book.cbr",
+            new Dictionary<string, string> { ["Title"] = "T" },
+            "Fallback",
+            Parsed(),
+            BookType.Manga,
+            CancellationToken.None,
+            vol => $"Vol {vol}.cbz");
+
+        Assert.True(Assert.Single(attempts).Success);
+        Assert.NotNull(writer.WrittenXml);
+        Assert.Null(writer.LastSplitXmls);
+    }
+
+    [Fact]
+    public async Task Pipeline_SplitFails_FallsBackToSingleArchiveWrite()
+    {
+        var writer = new StubArchiveWriter
+        {
+            EntryNames = MultiVolumeEntries,
+            SplitOk = false,
+            SplitError = "disk full"
+        };
+
+        var attempts = await Create(writer).RunPipelineAsync(
+            @"C:\library\Book.cbr",
+            new Dictionary<string, string> { ["Title"] = "T" },
+            "Fallback",
+            Parsed(),
+            BookType.Manga,
+            CancellationToken.None,
+            vol => $"Vol {vol}.cbz");
+
+        Assert.True(Assert.Single(attempts).Success);
+        Assert.NotNull(writer.WrittenXml);
+        Assert.NotNull(writer.LastPath);
+    }
+
+    [Fact]
+    public async Task Pipeline_EntryListingFails_FallsBackToSingleArchiveWrite()
+    {
+        var writer = new StubArchiveWriter { ListOk = false, ListError = "7-Zip not available" };
+
+        var attempts = await Create(writer).RunPipelineAsync(
+            @"C:\library\Book.cbr",
+            new Dictionary<string, string> { ["Title"] = "T" },
+            "Fallback",
+            Parsed(),
+            BookType.Manga,
+            CancellationToken.None,
+            vol => $"Vol {vol}.cbz");
+
+        Assert.True(Assert.Single(attempts).Success);
+        Assert.NotNull(writer.WrittenXml);
+        Assert.Null(writer.LastSplitXmls);
     }
 }

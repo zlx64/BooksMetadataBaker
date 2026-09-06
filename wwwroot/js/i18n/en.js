@@ -14,8 +14,8 @@
   window.BMB_I18N_EN = {
     pluralRules: enPlural,
     messages: {
-      docTitle: 'Books Metadata Baker — Add Your eBooks',
-      brand: 'eBook metadata, baked with care',
+      docTitle: 'Books Metadata Baker — Add Your Ebooks',
+      brand: 'Ebook metadata, baked with care',
       theme: {
         light: 'light',
         dark: 'cozy dark',
@@ -37,11 +37,11 @@
         sub: 'We’ll add them right to the baking queue'
       },
       hero: {
-        h1: 'Bake your eBook collection',
+        h1: 'Bake your Ebook collection',
         lede: 'Upload your PDF, EPUB, or comic archive files (CBZ, CBR, CB7, CBT). Books Metadata Baker gently fetches details from {anilist}, {google}, and {comicvine}, embeds them with Calibre or ComicInfo.xml, fixes PDF quirks using Ghostscript, and creates Kavita-ready sidecars.'
       },
       step1: {
-        heading: '1. Book details',
+        heading: 'Book details',
         title: 'Title',
         titlePlaceholder: 'Series or book title, e.g. The Saga of Tanya the Evil',
         titleRequired: 'Please enter a book title.',
@@ -59,7 +59,7 @@
         Comic: 'Comic'
       },
       step2: {
-        heading: '2. eBook files',
+        heading: 'Ebook files',
         selected: '{n} file ready · up to 500 MB each | {n} files ready · up to 500 MB each',
         browse: 'browse from device',
         dzTitle: 'Drag & drop your files anywhere, or {browse}',
@@ -71,12 +71,9 @@
         details: 'details ▾',
         hideDetails: 'hide details ▴',
         errorDetails: 'see what happened ▾',
+        createdArchives: 'Created archives',
         emptyState: 'Your shelf is empty for now — drop some PDFs, EPUBs, or comic archives above, then hit {bake}!',
         parallel: 'Up to {n} files process in parallel. Server limits are handled smoothly — queued files will wait patiently and retry automatically.'
-      },
-      meta: {
-        heading: 'Freshly baked metadata',
-        from: 'sourced from {source}'
       },
       actionbar: {
         done: '{done} of {total} completed',
@@ -139,6 +136,7 @@
         comicInfoYes: 'ComicInfo.xml: embedded with care',
         comicInfoNo: 'ComicInfo.xml: not embedded',
         pages: 'Pages: {n}',
+        split: 'split into {n} archive|split into {n} archives',
         directOk: 'Direct embed: successful',
         directFail: 'Direct embed: failed',
         repairOk: 'PDF repair pass: successful',

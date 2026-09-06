@@ -6,7 +6,7 @@
 // - Per-file progress via XMLHttpRequest (upload % -> indeterminate bake)
 // - Concurrency queue (up to 4 parallel), cancel, retry failed, clear finished
 // - Server rate-limit (429) auto-retry with Retry-After backoff + countdown
-// - Applied-metadata rendering (summary card + per-file expandable details)
+// - Applied-metadata rendering (per-file expandable details)
   // - UI localization (en/ua via vue-i18n; API data & errors stay as-is)
 // - Toasts, keyboard shortcut (Ctrl+Enter), screen-reader status line
 // ---------------------------------------------------------------------
@@ -32,19 +32,19 @@
   const TYPES = [
     {
       value: 'Book',
-      icon: '<svg viewBox="0 0 24 24"><path d="M12 6c-1.5-1.6-3.7-2.5-6-2.5H3v15h3c2.3 0 4.5.9 6 2.5 1.5-1.6 3.7-2.5 6-2.5h3v-15h-3c-2.3 0-4.5.9-6 2.5z"/><path d="M12 6v15"/></svg>'
+      icon: '<svg viewBox="0 0 448 512"><path fill="currentColor" d="M96 512l320 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l0-66.7c18.6-6.6 32-24.4 32-45.3l0-288c0-26.5-21.5-48-48-48l-48 0 0 169.4c0 12.5-10.1 22.6-22.6 22.6-6 0-11.8-2.4-16-6.6L272 144 230.6 185.4c-4.2 4.2-10 6.6-16 6.6-12.5 0-22.6-10.1-22.6-22.6L192 0 96 0C43 0 0 43 0 96L0 416c0 53 43 96 96 96zM64 416c0-17.7 14.3-32 32-32l256 0 0 64-256 0c-17.7 0-32-14.3-32-32z"/></svg>'
     },
     {
       value: 'LightNovel',
-      icon: '<svg viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V4H6.5A2.5 2.5 0 0 0 4 6.5v13z"/><path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5"/><path d="M9 8h7M9 11h5"/></svg>'
+      icon: '<svg viewBox="0 0 448 512"><path fill="currentColor" d="M384 512L96 512c-53 0-96-43-96-96L0 96C0 43 43 0 96 0L400 0c26.5 0 48 21.5 48 48l0 288c0 20.9-13.4 38.7-32 45.3l0 66.7c17.7 0 32 14.3 32 32s-14.3 32-32 32l-32 0zM96 384c-17.7 0-32 14.3-32 32s14.3 32 32 32l256 0 0-64-256 0zm32-232c0 13.3 10.7 24 24 24l176 0c13.3 0 24-10.7 24-24s-10.7-24-24-24l-176 0c-13.3 0-24 10.7-24 24zm24 72c-13.3 0-24 10.7-24 24s10.7 24 24 24l176 0c13.3 0 24-10.7 24-24s-10.7-24-24-24l-176 0z"/></svg>'
     },
     {
       value: 'Manga',
-      icon: '<svg viewBox="0 0 24 24"><path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5c-1.5 0-3-.4-4.2-1.1L3 20l1.1-5.3A8.5 8.5 0 1 1 21 11.5z"/><path d="M8.5 10.5h.01M12 10.5h.01M15.5 10.5h.01"/></svg>'
+      icon: '<svg viewBox="0 0 448 512"><g transform="translate(448,0) scale(-1,1)"><path fill="currentColor" d="M384 512L96 512c-53 0-96-43-96-96L0 96C0 43 43 0 96 0L400 0c26.5 0 48 21.5 48 48l0 288c0 20.9-13.4 38.7-32 45.3l0 66.7c17.7 0 32 14.3 32 32s-14.3 32-32 32l-32 0zM96 384c-17.7 0-32 14.3-32 32s14.3 32 32 32l256 0 0-64-256 0zm32-232c0 13.3 10.7 24 24 24l176 0c13.3 0 24-10.7 24-24s-10.7-24-24-24l-176 0c-13.3 0-24 10.7-24 24zm24 72c-13.3 0-24 10.7-24 24s10.7 24 24 24l176 0c13.3 0 24-10.7 24-24s-10.7-24-24-24l-176 0z"/></g></svg>'
     },
     {
       value: 'Comic',
-      icon: '<svg viewBox="0 0 24 24"><path d="M13 2 4 14h6l-1 8 9-12h-6l1-8z"/></svg>'
+      icon: '<svg viewBox="0 0 576 512"><path fill="currentColor" d="M384 144c0 97.2-86 176-192 176-26.7 0-52.1-5-75.2-14L35.2 349.2c-9.3 4.9-20.7 3.2-28.2-4.2s-9.2-18.9-4.2-28.2l35.6-67.2C14.3 220.2 0 183.6 0 144 0 46.8 86-32 192-32S384 46.8 384 144zm0 368c-94.1 0-172.4-62.1-188.8-144 120-1.5 224.3-86.9 235.8-202.7 83.3 19.2 145 88.3 145 170.7 0 39.6-14.3 76.2-38.4 105.6l35.6 67.2c4.9 9.3 3.2 20.7-4.2 28.2s-18.9 9.2-28.2 4.2L459.2 498c-23.1 9-48.5 14-75.2 14z"/></svg>'
     }
   ];
 
@@ -243,8 +243,6 @@
       const busy = ref(false);
       const windowDrag = ref(false);
       const lastIgnored = ref([]);
-      const metadata = ref(null);        // series-level metadata (first non-empty response)
-      const metadataTitle = ref('');
       const toasts = reactive([]);
       const now = ref(Date.now());
       const year = new Date().getFullYear();
@@ -314,8 +312,6 @@
         return t('actionbar.bakeAll');
       });
       const elapsedText = computed(() => busy.value ? formatElapsed(now.value - elapsedStart) : '');
-      const prettyMetaList = computed(() => prettyMeta(t, metadata.value));
-      const metaSource = computed(() => (metadata.value && metadata.value.Source) || '');
       const srStatus = computed(() => {
         if (!pendingFiles.length) return '';
         return t('sr.status', {
@@ -424,6 +420,8 @@
         if (d.comic) {
           // Comic archives skip Calibre/Ghostscript — report the ComicInfo.xml outcome instead.
           facts.push(d.comicInfo ? t('facts.comicInfoYes') : t('facts.comicInfoNo'));
+          // `facts.split` is a plural message — pass the count, not an object.
+          if (d.split > 1) facts.push(t('facts.split', d.split));
           if (d.pages) facts.push(t('facts.pages', { n: d.pages }));
         } else {
           facts.push(d.direct ? t('facts.directOk') : t('facts.directFail'));
@@ -470,12 +468,6 @@
           toast(t('toasts.addFiles'), 'warn');
           return;
         }
-        // A new title means the old metadata card no longer applies
-        if (metadata.value && metadataTitle.value !== title.value) {
-          metadata.value = null;
-          metadataTitle.value = '';
-        }
-
         busy.value = true;
         cancelFlag = false;
         elapsedStart = Date.now();
@@ -697,24 +689,22 @@
         const gs = pick(fileResult, 'GhostscriptRan', 'ghostscriptRan');
         const comicInfo = pick(fileResult, 'ComicInfoWritten', 'comicInfoWritten');
         const pages = pick(fileResult, 'PageCount', 'pageCount');
+        // Set when a multi-volume archive was split into several archives.
+        entry.splitFiles = pick(fileResult, 'SplitFiles', 'splitFiles') || [];
         // Raw outcome flags; text is localized at render time (factsOf).
         entry.factData = {
           attempts: entry.attempts || 1,
           comic: COMIC_EXTS.includes(entry.ext),
-          comicInfo, pages, direct, repair, gs
+          comicInfo, pages, direct, repair, gs,
+          split: entry.splitFiles.length
         };
-
-        const md = pick(data, 'Metadata', 'metadata');
-        if (md && Object.keys(md).length &&
-            (!metadata.value || metadataTitle.value !== title.value)) {
-          metadata.value = md;
-          metadataTitle.value = title.value;
-        }
 
         const success = pick(fileResult, 'Success', 'success');
         if (success) {
           entry.status = 'success';
           entry.error = null;
+          // A split archive created several files — reveal them without a click.
+          if (entry.splitFiles.length > 1) entry.expanded = true;
         } else {
           entry.status = 'error';
           // ErrorMessage comes from the server — shown as-is.
@@ -799,9 +789,9 @@
         locale, setLocale, locales: BMB_I18N.locales,
         title, titleTouched, titleInput, type, apiKey, authRequired, theme,
         filesInput, pendingFiles, busy, windowDrag, lastIgnored,
-        metadata, toasts, year,
+        toasts, year,
         typeLabel, isComicType, nameHint, canSubmit, pendingCount, successCount, failCount, runningCount,
-        doneCount, overallPct, primaryLabel, elapsedText, prettyMetaList, metaSource, srStatus,
+        doneCount, overallPct, primaryLabel, elapsedText, srStatus,
         maxConcurrent: MAX_CONCURRENT,
         onFiles, dragEnter, dragLeave, onDrop,
         start, cancelAll, retryFailed, clearFinished, removeFile, toggleDetails, toggleError,

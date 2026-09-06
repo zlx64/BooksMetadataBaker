@@ -41,7 +41,7 @@
         lede: 'PDF、EPUB、またはコミックアーカイブ（CBZ、CBR、CB7、CBT）をアップロードできます。Books Metadata Bakerが {anilist}、{google}、{comicvine} から情報を丁寧に収集し、CalibreやComicInfo.xmlを使って組み込みます。GhostscriptによるPDFの修復にも対応し、Kavitaでそのまま楽しめるファイルを準備します。'
       },
       step1: {
-        heading: '1. 書籍の詳細情報',
+        heading: '書籍の詳細情報',
         title: 'タイトル',
         titlePlaceholder: '作品名または書籍タイトル（例: 幼女戦記）',
         titleRequired: 'タイトルを入力してください。',
@@ -59,7 +59,7 @@
         Comic: 'コミック'
       },
       step2: {
-        heading: '2. 焼き上げるファイル',
+        heading: '焼き上げるファイル',
         selected: '{n} 個のファイルを選択中（1ファイルにつき最大500MB）',
         browse: '端末から選択する',
         dzTitle: 'ファイルをここにドラッグ＆ドロップ、または {browse}',
@@ -71,12 +71,9 @@
         details: '詳細を見る ▾',
         hideDetails: '詳細を隠す ▴',
         errorDetails: 'エラーの理由を確認 ▾',
+        createdArchives: '作成されたアーカイブ',
         emptyState: '本棚はまだ空っぽです — 上のエリアにPDF、EPUB、マンガファイルをドロップして {bake} を押してください！',
         parallel: '最大 {n} 個のファイルを並行して処理します。サーバーの制限に合わせて優しく調整されるため、順番待ちのファイルも自動的に再試行されます。'
-      },
-      meta: {
-        heading: '焼き上がったメタデータ',
-        from: '取得元: {source}'
       },
       actionbar: {
         done: '{total} 件中 {done} 件完了',
@@ -139,6 +136,7 @@
         comicInfoYes: 'ComicInfo.xml: 丁寧に埋め込み済み',
         comicInfoNo: 'ComicInfo.xml: 未埋め込み',
         pages: 'ページ数: {n}',
+        split: '{n} 個のアーカイブに分割しました',
         directOk: '直接埋め込み: 成功',
         directFail: '直接埋め込み: 失敗',
         repairOk: 'PDF修復: 成功',

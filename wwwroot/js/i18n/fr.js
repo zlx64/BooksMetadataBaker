@@ -15,8 +15,8 @@
   window.BMB_I18N_FR = {
     pluralRules: frPlural,
     messages: {
-      docTitle: 'Books Metadata Baker — Ajouter vos eBooks',
-      brand: 'Des métadonnées d’eBooks, cuites avec amour',
+      docTitle: 'Books Metadata Baker — Ajouter vos Ebooks',
+      brand: 'Des métadonnées d’Ebooks, cuites avec amour',
       theme: {
         light: 'lumineux',
         dark: 'sombre et cocooning',
@@ -38,11 +38,11 @@
         sub: 'Nous les ajouterons directement à la file de cuisson'
       },
       hero: {
-        h1: 'Faites cuire votre collection d’eBooks',
+        h1: 'Faites cuire votre collection d’Ebooks',
         lede: 'Téléversez vos fichiers PDF, EPUB ou archives de comics (CBZ, CBR, CB7, CBT). Books Metadata Baker récupère délicatement les détails depuis {anilist}, {google} et {comicvine}, les intègre avec Calibre ou ComicInfo.xml, répare les petits défauts des PDF avec Ghostscript et prépare des fichiers prêts pour Kavita.'
       },
       step1: {
-        heading: '1. Détails du livre',
+        heading: 'Détails du livre',
         title: 'Titre',
         titlePlaceholder: 'Titre de la série ou du livre, ex. The Saga of Tanya the Evil',
         titleRequired: 'Veuillez saisir un titre de livre.',
@@ -60,7 +60,7 @@
         Comic: 'Comic'
       },
       step2: {
-        heading: '2. Fichiers eBook',
+        heading: 'Fichiers Ebook',
         selected: '{n} fichier prêt · max 500 Mo chacun | {n} fichiers prêts · max 500 Mo chacun',
         browse: 'parcourir votre appareil',
         dzTitle: 'Glissez-déposez vos fichiers n’importe où, ou {browse}',
@@ -72,12 +72,9 @@
         details: 'détails ▾',
         hideDetails: 'masquer les détails ▴',
         errorDetails: 'voir ce qu’il s’est passé ▾',
+        createdArchives: 'Archives créées',
         emptyState: 'Votre étagère est vide pour l’instant — déposez des PDF, EPUB ou archives de comics ci-dessus, puis cliquez sur {bake} !',
         parallel: 'Jusqu’à {n} fichiers traités en parallèle. Les limites du serveur sont gérées en douceur — les fichiers en attente patienteront et réessaieront automatiquement.'
-      },
-      meta: {
-        heading: 'Métadonnées fraîchement cuites',
-        from: 'provenant de {source}'
       },
       actionbar: {
         done: '{done} sur {total} terminés',
@@ -140,6 +137,7 @@
         comicInfoYes: 'ComicInfo.xml : intégré avec soin',
         comicInfoNo: 'ComicInfo.xml : non intégré',
         pages: 'Pages : {n}',
+        split: 'divisé en {n} archive|divisé en {n} archives',
         directOk: 'Intégration directe : réussie',
         directFail: 'Intégration directe : échouée',
         repairOk: 'Réparation PDF : réussie',

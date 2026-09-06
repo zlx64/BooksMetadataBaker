@@ -14,8 +14,8 @@
   window.BMB_I18N_DE = {
     pluralRules: dePlural,
     messages: {
-      docTitle: 'Books Metadata Baker — eBooks hinzufügen',
-      brand: 'eBook-Metadaten, mit Liebe gebacken',
+      docTitle: 'Books Metadata Baker — Ebooks hinzufügen',
+      brand: 'Ebook-Metadaten, mit Liebe gebacken',
       theme: {
         light: 'hell',
         dark: 'gemütlich dunkel',
@@ -37,11 +37,11 @@
         sub: 'Wir fügen sie direkt zur Back-Warteschlange hinzu'
       },
       hero: {
-        h1: 'Backe deine eBook-Sammlung',
+        h1: 'Backe deine Ebook-Sammlung',
         lede: 'Lade deine PDF-, EPUB- oder Comic-Archive (CBZ, CBR, CB7, CBT) hoch. Books Metadata Baker sammelt sorgfältig Details von {anilist}, {google} und {comicvine}, bettet sie mit Calibre oder ComicInfo.xml ein, behebt PDF-Fehler mit Ghostscript und erstellt Kavita-bereite Dateien.'
       },
       step1: {
-        heading: '1. Buchdetails',
+        heading: 'Buchdetails',
         title: 'Titel',
         titlePlaceholder: 'Reihe oder Buchtitel, z. B. The Saga of Tanya the Evil',
         titleRequired: 'Bitte gib einen Buchtitel ein.',
@@ -59,7 +59,7 @@
         Comic: 'Comic'
       },
       step2: {
-        heading: '2. eBook-Dateien',
+        heading: 'Ebook-Dateien',
         selected: '{n} Datei bereit · max. 500 MB je Datei | {n} Dateien bereit · max. 500 MB je Datei',
         browse: 'vom Gerät auswählen',
         dzTitle: 'Ziehe deine Dateien hierher oder {browse}',
@@ -71,12 +71,9 @@
         details: 'Details ▾',
         hideDetails: 'Details verbergen ▴',
         errorDetails: 'Nachsehen, was schiefging ▾',
+        createdArchives: 'Erstellte Archive',
         emptyState: 'Dein Bücherregal ist noch leer — ziehe oben einige PDFs, EPUBs oder Comic-Archive hinein und klicke auf {bake}!',
         parallel: 'Bis zu {n} Dateien werden parallel verarbeitet. Server-Limits werden sanft gehandhabt — wartende Dateien gedulden sich und versuchen es automatisch erneut.'
-      },
-      meta: {
-        heading: 'Frisch gebackene Metadaten',
-        from: 'stammt von {source}'
       },
       actionbar: {
         done: '{done} von {total} fertig',
@@ -139,6 +136,7 @@
         comicInfoYes: 'ComicInfo.xml: sorgfältig eingebettet',
         comicInfoNo: 'ComicInfo.xml: nicht eingebettet',
         pages: 'Seiten: {n}',
+        split: 'in {n} Archiv aufgeteilt|in {n} Archive aufgeteilt',
         directOk: 'Direktes Einbetten: erfolgreich',
         directFail: 'Direktes Einbetten: fehlgeschlagen',
         repairOk: 'PDF-Reparatur: erfolgreich',
