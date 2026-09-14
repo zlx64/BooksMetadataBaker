@@ -119,6 +119,18 @@ public class FilesController(IUploadProcessingService processor, IConfiguration 
             error = "Invalid path";
             return null;
         }
+        // Root-anchored / absolute paths are rejected outright and consistently
+        // on both platforms. On Unix a leading '/' would otherwise be trimmed
+        // below and silently re-rooted inside the folder (e.g. "/etc/passwd" ->
+        // "<root>/etc/passwd"); on Windows a drive letter or '\\' already defeats
+        // containment. Path.IsPathRooted alone is not enough — it does not treat a
+        // leading '/' as rooted on Windows — so also reject an explicit separator.
+        var probe = (relativePath ?? string.Empty).Trim();
+        if (probe.Length > 0 && (Path.IsPathRooted(probe) || probe[0] == '/' || probe[0] == '\\'))
+        {
+            error = "Path is outside the server files folder";
+            return null;
+        }
         var rootFull = Path.GetFullPath(rootFolder);
         var rel = (relativePath ?? string.Empty).Replace('\\', '/').Trim().TrimStart('/');
         var full = Path.GetFullPath(Path.Combine(rootFull, rel));

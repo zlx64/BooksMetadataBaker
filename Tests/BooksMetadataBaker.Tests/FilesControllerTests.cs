@@ -86,14 +86,13 @@ public class FilesControllerTests
     [Theory]
     [InlineData("sub")]
     [InlineData("sub/dir/file.cbz")]
-    [InlineData("/sub/dir/file.cbz")]
     [InlineData("  sub  ")]
     public void ResolveUnderRoot_RelativePaths_ResolveUnderRoot(string path)
     {
         var result = FilesController.ResolveUnderRoot(BaseRoot, path, out var error);
 
         Assert.Null(error);
-        Assert.Equal(Path.GetFullPath(Path.Combine(BaseRoot, path.Trim().TrimStart('/'))), result);
+        Assert.Equal(Path.GetFullPath(Path.Combine(BaseRoot, path.Trim())), result);
     }
 
     [Theory]
@@ -102,7 +101,10 @@ public class FilesControllerTests
     [InlineData("a/../../evil")]
     [InlineData("a\\..\\..\\evil")]
     [InlineData("../srvfiles-evil")]
-    public void ResolveUnderRoot_Traversal_IsRejected(string path)
+    [InlineData("/sub/dir/file.cbz")]
+    [InlineData("/etc/passwd")]
+    [InlineData("\\\\server\\share\\file.cbz")]
+    public void ResolveUnderRoot_EscapingOrRootAnchoredPaths_AreRejected(string path)
     {
         var result = FilesController.ResolveUnderRoot(BaseRoot, path, out var error);
 
