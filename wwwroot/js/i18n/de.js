@@ -73,7 +73,20 @@
         errorDetails: 'Nachsehen, was schiefging ▾',
         createdArchives: 'Erstellte Archive',
         emptyState: 'Dein Bücherregal ist noch leer — ziehe oben einige PDFs, EPUBs oder Comic-Archive hinein und klicke auf {bake}!',
-        parallel: 'Bis zu {n} Dateien werden parallel verarbeitet. Server-Limits werden sanft gehandhabt — wartende Dateien gedulden sich und versuchen es automatisch erneut.'
+        parallel: 'Bis zu {n} Dateien werden parallel verarbeitet. Server-Limits werden sanft gehandhabt — wartende Dateien gedulden sich und versuchen es automatisch erneut.',
+        sourceTabsAria: 'Dateiquelle',
+        sourceTabLocal: 'Dieses Gerät',
+        sourceTabServer: 'Server-Volume',
+        serverTag: 'Server'
+      },
+      server: {
+        up: 'Ein Ordner höher',
+        root: 'Stamm',
+        refresh: 'Aktualisieren',
+        loading: 'Ordner wird geladen …',
+        empty: 'Dieser Ordner ist leer.',
+        moveOriginals: 'Originaldateien in die Bibliothek verschieben (Quelldateien werden gelöscht)',
+        addSelected: 'Füge {n} Datei zur Warteschlange hinzu | Füge {n} Dateien zur Warteschlange hinzu'
       },
       actionbar: {
         done: '{done} von {total} fertig',

@@ -417,7 +417,7 @@ label[type-opt]:focus-within, .file-main:focus-visible, .dropzone:focus-within {
 .type-icon { display: grid; place-items: center; }
 .type-icon svg {
   width: 22px; height: 22px;
-  fill: currentColor;
+  fill: var(--accent);
 }
 .type-name { font-size: .8rem; font-weight: 600; }
 .type-opt.active .type-name { color: inherit; }
@@ -480,6 +480,176 @@ label[type-opt]:focus-within, .file-main:focus-visible, .dropzone:focus-within {
 }
 .drop-overlay-title { margin: 0; font-family: var(--font-serif); font-size: 1.25rem; font-weight: 700; }
 .drop-overlay-sub { margin: 0; color: var(--soft); font-size: .88rem; }
+
+/* 7b. Source tabs + server volume browser ------------------------------------------ */
+.source-tabs {
+  display: flex;
+  gap: .35rem;
+  margin-bottom: .9rem;
+  border-bottom: 1px solid var(--border);
+}
+.source-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: .45rem;
+  padding: .5rem .85rem .55rem;
+  font-size: .8rem;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--soft);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  cursor: pointer;
+  user-select: none;
+  transition: color .15s ease, border-color .15s ease;
+}
+.source-tab svg { width: 15px; height: 15px; fill: currentColor; }
+.source-tab:hover { color: var(--text); }
+.source-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+.server-browser { display: flex; flex-direction: column; gap: .65rem; }
+
+.sb-toolbar {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  background: var(--input-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  padding: .3rem .3rem .3rem .45rem;
+}
+.sb-nav {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 30px; height: 30px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  color: var(--soft);
+  cursor: pointer;
+  transition: color .15s ease, border-color .15s ease, background .15s ease;
+}
+.sb-nav svg { width: 15px; height: 15px; fill: currentColor; }
+.sb-nav:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.sb-nav:disabled { opacity: .45; cursor: not-allowed; }
+.sb-path {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: .1rem;
+  font-family: var(--font-mono);
+  font-size: .78rem;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.sb-root {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--accent);
+  cursor: pointer;
+}
+.sb-root:hover:not(:disabled) { text-decoration: underline; }
+.sb-root:disabled { cursor: default; }
+.sb-sep { color: var(--soft); opacity: .6; }
+.sb-seg {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sb-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: .3rem;
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  background: var(--input-bg);
+  padding: .4rem;
+}
+.sb-entry {
+  display: flex;
+  align-items: center;
+  gap: .55rem;
+  width: 100%;
+  padding: .4rem .55rem;
+  font-size: .82rem;
+  font-family: inherit;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-s);
+  text-align: left;
+  cursor: pointer;
+  transition: background .15s ease, border-color .15s ease;
+}
+.sb-entry:hover { background: var(--panel-soft); border-color: var(--border); }
+.sb-icon {
+  flex: 0 0 auto;
+  width: 16px; height: 16px;
+  fill: var(--soft);
+}
+.sb-dir:hover .sb-icon { fill: var(--accent); }
+.sb-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sb-file input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: 15px; height: 15px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.sb-file .fmt-badge { flex: 0 0 auto; }
+.sb-file.off { opacity: .5; cursor: default; }
+.sb-file.off:hover { background: transparent; border-color: transparent; }
+
+.sb-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .8rem;
+  flex-wrap: wrap;
+}
+.sb-move {
+  display: inline-flex;
+  align-items: center;
+  gap: .45rem;
+  font-size: .78rem;
+  color: var(--soft);
+  cursor: pointer;
+  user-select: none;
+}
+.sb-move input[type="checkbox"] {
+  width: 15px; height: 15px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.src-badge {
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-size: .6rem;
+  font-weight: 700;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: var(--soft);
+  border: 1px dashed var(--border-strong);
+  border-radius: 5px;
+  padding: .1rem .35rem;
+  white-space: nowrap;
+}
 
 /* 8. File list / progress / pills / details ------------------------------------- */
 .file-list {

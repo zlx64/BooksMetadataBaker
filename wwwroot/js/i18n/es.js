@@ -73,7 +73,20 @@
         errorDetails: 'ver qué ha pasado ▾',
         createdArchives: 'Archivos creados',
         emptyState: 'Tu estantería está vacía por ahora — ¡suelta algunos PDF, EPUB o archivos de cómic arriba y haz clic en {bake}!',
-        parallel: 'Hasta {n} archivos procesados en paralelo. Los límites del servidor se gestionan suavemente — los archivos en cola esperarán pacientemente y reintentarán automáticamente.'
+        parallel: 'Hasta {n} archivos procesados en paralelo. Los límites del servidor se gestionan suavemente — los archivos en cola esperarán pacientemente y reintentarán automáticamente.',
+        sourceTabsAria: 'Origen de los archivos',
+        sourceTabLocal: 'Este dispositivo',
+        sourceTabServer: 'Volumen del servidor',
+        serverTag: 'servidor'
+      },
+      server: {
+        up: 'Subir un nivel',
+        root: 'raíz',
+        refresh: 'Actualizar',
+        loading: 'Cargando carpeta…',
+        empty: 'Esta carpeta está vacía.',
+        moveOriginals: 'Mover los originales a la biblioteca (se eliminarán los archivos de origen)',
+        addSelected: 'Añadir {n} archivo a la cola | Añadir {n} archivos a la cola'
       },
       actionbar: {
         done: '{done} de {total} completados',

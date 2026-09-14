@@ -16,6 +16,7 @@ BooksMetadataBaker automatically enhances your Ebook collection by:
 - Creating comprehensive `.meta.json` sidecar files for tracking
 - Supporting PDF, EPUB, and comic archive formats (CBZ, CBR, CB7, CBT)
 - Organizing files by book type into configurable folder structures with Kavita-compatible volume/chapter/special naming
+- Browsing and queueing files that already live on a mounted server volume (no upload from your own machine needed)
 
 ## Features
 
@@ -50,10 +51,20 @@ BooksMetadataBaker automatically enhances your Ebook collection by:
 - Detailed processing logs per file
 - Concurrent uploads are serialized per file to prevent write races
 
+### Server-Volume File Source
+- Queue files that already live on the server (e.g. a Docker volume mount) instead of uploading them from your own machine
+- Source tabs in the UI: **This device** (upload) and **Server volume** (browse)
+- Directory browser: subfolders first, dotfiles hidden, per-file size, and a `selectable` flag for accepted ebook/comic extensions
+- Process a selected file in place: **copy** into the library by default, or **move** the original (source file is deleted; falls back to copy if the move is blocked by a locked file)
+- Every path is contained to the configured root — path traversal is rejected
+- Shares the upload endpoint's 500 MB per-file limit and rate limiting
+- Enabled by default; the browsable root falls back to the library root (`ROOT_DIR`) when `ServerFiles:RootFolder` is empty
+
 ### User Interface
 - Clean, modern web UI built with Vue.js (self-hosted, no CDN — system fonts only, works fully offline)
 - Stepped workflow: **1. Book details** (title + segmented type picker with icons) → **2. Ebook files**
 - Whole-window drag & drop (drop anywhere on the page) or browse, with client-side 500 MB size check
+- File-source tabs: **This device** (drag & drop / browse local files) and **Server volume** (browse a mounted folder on the server, select files, choose copy or move)
 - Per-file rows: format badge, predicted saved filename (`Title - Volume N.ext`), phase text
   (Queued → Uploading % → Baking → Baked), inline errors, and expandable applied-metadata details
   (attempts, direct/repair embed, Ghostscript repair, full metadata fields)
@@ -129,6 +140,19 @@ docker run -d \
   books-metadata-baker
 ```
 
+To also queue files that already live on a mounted volume (the **Server volume** source tab), mount an "incoming" folder and point `SERVER_FILES_DIR` at it:
+
+```bash
+docker run -d \
+  -p 8080:8080 \
+  -v /host/books:/data/books \
+  -v /host/incoming:/srv/incoming \
+  -e ROOT_DIR=/data/books \
+  -e SERVER_FILES_DIR=/srv/incoming \
+  --name metadata-baker \
+  books-metadata-baker
+```
+
 The container runs as a **non-root user** (UID/GID 1000 by default). If your host bind mounts are owned by a different user, build with matching IDs:
 
 ```bash
@@ -164,6 +188,8 @@ All settings can be overridden via environment variables. Defaults are in `appse
 | `MANGA_COMICS_ALLOWED_EXTENSIONS` | `cbz,cbr,cb7,cbt,zip,rar,7z,tar` | Comma-separated archive extensions accepted for uploads (raw containers are saved as their Kavita equivalent) |
 | `MANGA_COMICS_SPECIALS_SUBFOLDER` | `true` | Store specials (`<Title> SP##.ext`) in a `Specials/` subfolder instead of the title folder |
 | `MANGA_COMICS_USE_CURLY_BRACE_YEAR` | `false` | When a trailing `(YYYY)` year is parsed from an archive filename, emit `{YYYY}` in the series folder (Kavita strips parentheses, not braces) |
+| `SERVER_FILES_ENABLED` | `true` | Enable the "Server volume" source tab (browse/queue files from a mounted server volume) |
+| `SERVER_FILES_DIR` | *(empty → `ROOT_DIR`)* | Folder to browse on the server, e.g. an "incoming" volume mount; empty falls back to the library root |
 
 Directory values can be **relative** (subfolder of `ROOT_DIR`) or **absolute** (e.g. `/mnt/comics`). When all type directories are absolute, `ROOT_DIR` is not required.
 
@@ -176,6 +202,10 @@ Directory values can be **relative** (subfolder of `ROOT_DIR`) or **absolute** (
     "AllowedExtensions": "cbz,cbr,cb7,cbt,zip,rar,7z,tar",
     "SpecialsSubfolder": true,
     "UseCurlyBraceYear": false
+  },
+  "ServerFiles": {
+    "Enabled": true,
+    "RootFolder": ""
   },
   "Tools": {
     "SidecarMetadataEnabled": true,
@@ -197,6 +227,8 @@ Directory values can be **relative** (subfolder of `ROOT_DIR`) or **absolute** (
 - `SevenZipPath`: used for CB7 read/write and CBR read. A bare name is resolved from `PATH`, trying the configured name first, then `7z`, then `7zz` (the `7zip` package, included in the Docker image, provides `7z` on Debian and `7zz` on newer distros — both are found).
 - `RarPath`: WinRAR `rar` executable. Optional — when empty/unavailable, CBR files are still saved and organized, but `ComicInfo.xml` embedding is skipped and the upload is reported as a partial success.
 - `MangaComics:Enabled`: set to `false` to reject comic archive uploads (PDF/EPUB keep working).
+- `ServerFiles:Enabled`: set to `false` to hide the "Server volume" source tab and reject `/api/files` requests.
+- `ServerFiles:RootFolder`: the browsable root for the server-volume source. When empty it falls back to `PdfLibrary:RootFolder` (`ROOT_DIR`).
 - `SourceOrder`: priority order for metadata sources (comma-separated type names). A source whose returned `Title` exactly matches the searched title is always preferred.
 - Uploads are rate-limited per client IP (default 10/minute). Rejected requests get HTTP 429 with a
   `Retry-After` header and a JSON body (`{"error":"Rate limit exceeded","retryAfterSeconds":N}`)
@@ -208,7 +240,7 @@ Directory values can be **relative** (subfolder of `ROOT_DIR`) or **absolute** (
 
 1. Navigate to the application URL in your browser
 2. Enter the **title** of the book/series and pick the **type** (Book, Light Novel, Manga, or Comic)
-3. Drag & drop (anywhere on the page) or browse one or more **files** (PDF, EPUB, CBZ, CBR, CB7, CBT — or raw ZIP / RAR / 7Z / TAR, converted to their Kavita equivalent)
+3. Add files — either the **This device** tab (drag & drop anywhere on the page, or browse) or the **Server volume** tab (browse a mounted folder on the server and select files). Accepted: PDF, EPUB, CBZ, CBR, CB7, CBT — or raw ZIP / RAR / 7Z / TAR, converted to their Kavita equivalent
 4. If the server enforces `API_KEY`, paste it into the **API key** field (remembered in the browser)
 5. Click **Bake files** (or press Ctrl+Enter)
 6. Monitor per-file and overall progress in the sticky action bar; use **Cancel**, **Retry failed**,
@@ -257,6 +289,51 @@ Comic archives are named from their filename: volume marker → `<Title> - Volum
 ```
 
 For comic archives, `comicInfoWritten` reports whether `ComicInfo.xml` was embedded and `pageCount` the detected page count; the Calibre-related flags (`directAttemptSuccess`, `repairAttemptSuccess`, `ghostscriptRan`) stay `false` because archives never go through the `ebook-meta` pipeline. A CBR without the WinRAR tool succeeds with `comicInfoWritten: false` and an `errorMessage` explaining the skipped embedding.
+
+### Server-Volume Endpoints
+
+Browse a folder on the server (e.g. a mounted volume) and queue files from it, without uploading:
+
+```http
+GET /api/files?path=<relative path>
+X-Api-Key: <only required when API_KEY is configured>
+```
+
+- `path` is optional — a `/`-separated path relative to the server-files root (`SERVER_FILES_DIR` / `ServerFiles:RootFolder`). Omit it to list the root.
+- Returns `404` when the feature is disabled/unconfigured or the folder doesn't exist, and `400` for a path that escapes the root.
+
+**Response** (subfolders first, then files; dotfiles hidden):
+
+```json
+{
+  "path": "sub",
+  "parent": "",
+  "entries": [
+    { "name": "Chapter 1", "path": "sub/Chapter 1", "isDir": true, "size": 0, "selectable": false },
+    { "name": "My Series - Volume 1.cbz", "path": "sub/My Series - Volume 1.cbz", "isDir": false, "size": 184221, "selectable": true }
+  ]
+}
+```
+
+`parent` is the path one level up, or `null` at the root. `selectable` is `true` only for accepted ebook/comic extensions.
+
+```http
+POST /api/files/process
+Content-Type: application/json
+X-Api-Key: <only required when API_KEY is configured>
+
+{
+  "title": "My Series",
+  "type": "Manga",
+  "path": "sub/My Series - Volume 1.cbz",
+  "moveOriginals": false
+}
+```
+
+- `title` (required), `type` (required: `Book` | `Comic` | `LightNovel` | `Manga`), `path` (required, relative to the server-files root)
+- `moveOriginals` (optional, default `false`): when `true` the source file is moved into the library and removed from the volume; when `false` it is copied. A move blocked by a locked source falls back to a copy.
+- Rate-limited like the upload endpoint, with the same 500 MB per-file limit.
+- The response shape matches `POST /api/upload` (`files`, `metadata`, `cancelled`).
 
 ## Technology Stack
 

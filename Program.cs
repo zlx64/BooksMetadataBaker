@@ -19,6 +19,8 @@ try
         ("MANGA_COMICS_ALLOWED_EXTENSIONS", "MangaComics:AllowedExtensions"),
         ("MANGA_COMICS_SPECIALS_SUBFOLDER", "MangaComics:SpecialsSubfolder"),
         ("MANGA_COMICS_USE_CURLY_BRACE_YEAR", "MangaComics:UseCurlyBraceYear"),
+        ("SERVER_FILES_ENABLED", "ServerFiles:Enabled"),
+        ("SERVER_FILES_DIR", "ServerFiles:RootFolder"),
         ("SEVEN_ZIP_PATH", "Tools:SevenZipPath"),
         ("RAR_PATH", "Tools:RarPath"),
     };

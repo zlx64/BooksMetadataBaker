@@ -239,13 +239,26 @@
       const theme = ref(['light', 'dark', 'auto'].includes(lsGet(LS.theme)) ? lsGet(LS.theme) : 'light');
 
       const filesInput = ref(null);
-      const pendingFiles = reactive([]); // { uid, file, name, size, ext, progress, status, error, attempts, skip, expanded, details (raw meta), factData, savedName, throttleRetries, retryAt, _xhr }
+      const pendingFiles = reactive([]); // { uid, file, name, size, ext, progress, status, error, attempts, skip, expanded, details (raw meta), factData, savedName, throttleRetries, retryAt, _xhr, source ('local'|'server'), serverPath, moveOriginals, dedupeKey }
       const busy = ref(false);
       const windowDrag = ref(false);
       const lastIgnored = ref([]);
       const toasts = reactive([]);
       const now = ref(Date.now());
       const year = new Date().getFullYear();
+
+      // Server volume source: the browsed folder lives on the server (e.g. a
+      // Docker bind mount), so selected files are processed in place — no upload.
+      const sourceTab = ref('local'); // 'local' | 'server'
+      const serverEnabled = ref(false);
+      const serverRoot = ref('');
+      const serverPath = ref(''); // '' = root
+      const serverEntries = ref([]);
+      const serverLoading = ref(false);
+      const serverError = ref(null);
+      const serverSelected = reactive(new Set()); // relative paths
+      const serverMoveOriginals = ref(false);
+      let serverLoadedOnce = false;
 
       let uidSeq = 0;
       let toastSeq = 0;
@@ -312,6 +325,7 @@
         return t('actionbar.bakeAll');
       });
       const elapsedText = computed(() => busy.value ? formatElapsed(now.value - elapsedStart) : '');
+      const serverPathSegments = computed(() => serverPath.value ? serverPath.value.split('/') : []);
       const srStatus = computed(() => {
         if (!pendingFiles.length) return '';
         return t('sr.status', {
@@ -342,9 +356,108 @@
           const data = await res.json();
           const required = pick(data, 'authRequired', 'AuthRequired');
           authRequired.value = required !== undefined ? !!required : true;
+          const sf = pick(data, 'serverFiles', 'ServerFiles');
+          if (sf) {
+            const enabled = pick(sf, 'enabled', 'Enabled');
+            serverEnabled.value = enabled !== undefined ? !!enabled : false;
+            const root = pick(sf, 'root', 'Root');
+            serverRoot.value = typeof root === 'string' ? root : '';
+          }
         } catch { /* probe failed — keep the field visible */ }
       }
       loadServerConfig();
+
+      // -------------------------------------------------------------
+      // Server volume browsing
+      // -------------------------------------------------------------
+      async function loadServerDir(path) {
+        serverLoading.value = true;
+        serverError.value = null;
+        try {
+          const res = await fetch('/api/files?path=' + encodeURIComponent(path), {
+            cache: 'no-store',
+            headers: apiKey.value ? { 'X-Api-Key': apiKey.value } : {}
+          });
+          if (!res.ok) {
+            serverEntries.value = [];
+            serverError.value = await httpErrorText(res);
+            return;
+          }
+          const data = await res.json();
+          serverPath.value = pick(data, 'path', 'Path') || '';
+          serverEntries.value = pick(data, 'entries', 'Entries') || [];
+          serverSelected.clear();
+        } catch {
+          serverEntries.value = [];
+          serverError.value = t('errors.network');
+        } finally {
+          serverLoading.value = false;
+        }
+      }
+
+      function openServerTab() {
+        sourceTab.value = 'server';
+        if (!serverLoadedOnce) {
+          serverLoadedOnce = true;
+          loadServerDir('');
+        }
+      }
+      function serverUp() {
+        if (!serverPath.value) return;
+        const i = serverPath.value.lastIndexOf('/');
+        loadServerDir(i === -1 ? '' : serverPath.value.slice(0, i));
+      }
+      function serverGoRoot() { loadServerDir(''); }
+      function serverOpenDir(entry) { loadServerDir(entry.path); }
+      function toggleServerEntry(entry, checked) {
+        if (checked) serverSelected.add(entry.path);
+        else serverSelected.delete(entry.path);
+      }
+
+      function addServerFiles() {
+        const chosen = serverEntries.value.filter(e => !e.isDir && serverSelected.has(e.path));
+        if (!chosen.length) return;
+        const existing = new Set(pendingFiles.map(f => f.dedupeKey));
+        let added = 0;
+        for (const e of chosen) {
+          const ext = extOf(e.name);
+          if (!ALLOWED_EXTS.includes(ext)) continue; // defensive: server marks selectable
+          const dedupeKey = 'srv|' + e.path;
+          if (existing.has(dedupeKey)) continue;
+          existing.add(dedupeKey);
+          const item = makeItem(e.name, e.size, ext, {
+            source: 'server',
+            serverPath: e.path,
+            moveOriginals: serverMoveOriginals.value,
+            dedupeKey
+          });
+          if (e.size > MAX_FILE_SIZE) {
+            item.status = 'error';
+            item.skip = true;
+            item.error = t('errors.tooLarge');
+          }
+          pendingFiles.push(item);
+          added++;
+        }
+        serverSelected.clear();
+        if (added) toast(t('toasts.added', added), 'info');
+      }
+
+      // Server-provided error body (JSON or plain text) for fetch-based calls.
+      async function httpErrorText(res) {
+        let body = '';
+        try {
+          body = (await res.text()).trim();
+          if (body) {
+            try {
+              const j = JSON.parse(body);
+              if (typeof j === 'string') body = j;
+              else if (j && typeof j === 'object') body = j.error || j.title || JSON.stringify(j);
+            } catch { /* keep raw text */ }
+          }
+        } catch { /* no body */ }
+        return body || t('errors.http', { status: res.status });
+      }
 
       // -------------------------------------------------------------
       // File selection
@@ -354,11 +467,38 @@
         if (filesInput.value) filesInput.value.value = ''; // allow re-selecting the same file
       }
 
+      // Queue row factory — shared by local (upload) and server (in-place) files.
+      // status: pending | uploading | processing | throttled | success | error | canceled
+      function makeItem(name, size, ext, extra) {
+        return Object.assign({
+          uid: ++uidSeq,
+          file: null,
+          name, size, ext,
+          progress: 0,
+          status: 'pending',
+          error: null,
+          errorExpanded: false,
+          attempts: 0,
+          skip: false,
+          expanded: false,
+          details: null,
+          factData: null,
+          savedName: null,
+          throttleRetries: 0,
+          retryAt: 0,
+          _xhr: null,
+          source: 'local',
+          serverPath: null,
+          moveOriginals: false,
+          dedupeKey: name + '|' + size
+        }, extra || {});
+      }
+
       function addFiles(list) {
         const incoming = Array.from(list || []);
         if (!incoming.length) return;
         lastIgnored.value = [];
-        const existing = new Set(pendingFiles.map(f => f.name + '|' + f.size));
+        const existing = new Set(pendingFiles.map(f => f.dedupeKey));
         let added = 0;
         for (const f of incoming) {
           const ext = extOf(f.name);
@@ -370,26 +510,7 @@
           if (existing.has(dedupeKey)) continue;
           existing.add(dedupeKey);
 
-          const item = {
-            uid: ++uidSeq,
-            file: f,
-            name: f.name,
-            size: f.size,
-            ext,
-            progress: 0,
-            status: 'pending', // pending | uploading | processing | throttled | success | error | canceled
-            error: null,
-            errorExpanded: false,
-            attempts: 0,
-            skip: false,
-            expanded: false,
-            details: null,
-            factData: null,
-            savedName: null,
-            throttleRetries: 0,
-            retryAt: 0,
-            _xhr: null
-          };
+          const item = makeItem(f.name, f.size, ext, { file: f, dedupeKey });
           if (f.size > MAX_FILE_SIZE) {
             item.status = 'error';
             item.skip = true;
@@ -473,6 +594,7 @@
         elapsedStart = Date.now();
 
         const queue = [...pendingFiles];
+        const hasServerFiles = queue.some(f => f.source === 'server');
         let qi = 0;
         let active = 0;
 
@@ -481,7 +603,8 @@
             while (active < MAX_CONCURRENT && qi < queue.length) {
               const item = queue[qi++];
               if (item.status !== 'pending') continue;
-              item.status = 'uploading';
+              // Server files need no upload phase — baking starts immediately.
+              item.status = item.source === 'server' ? 'processing' : 'uploading';
               active++;
               uploadOne(item).then(() => { active--; pump(); });
             }
@@ -492,6 +615,9 @@
             const ok = successCount.value;
             if (ok && !failed) toast(t('toasts.baked', ok), 'success');
             else if (failed) toast(t('toasts.failed', failed), 'error');
+            // Server-source files may have been moved out of the volume; refresh
+            // the browsed folder so the list reflects what's actually there now.
+            if (hasServerFiles && serverLoadedOnce) loadServerDir(serverPath.value);
           }
         }
 
@@ -549,25 +675,10 @@
       }
 
       function attempt(entry, finish) {
-        const fd = new FormData();
-        fd.append('Title', title.value);
-        fd.append('Type', type.value);
-        fd.append('file', entry.file);
-
         const xhr = new XMLHttpRequest();
         entry._xhr = xhr;
-        xhr.open('POST', '/api/upload');
         xhr.timeout = XHR_TIMEOUT_MS;
         if (apiKey.value) xhr.setRequestHeader('X-Api-Key', apiKey.value);
-
-        xhr.upload.onprogress = e => {
-          if (!e.lengthComputable) return;
-          entry.progress = Math.min(99, Math.round((e.loaded / e.total) * 100));
-        };
-        xhr.upload.onload = () => {
-          // Bytes sent — server is now fetching metadata and running Calibre/Ghostscript
-          if (entry.status === 'uploading') entry.status = 'processing';
-        };
 
         xhr.onload = () => {
           // Rate limited: wait (Retry-After or a sane default) and retry automatically
@@ -624,6 +735,33 @@
           finish();
         };
 
+        if (entry.source === 'server') {
+          // The file already lives on the server volume — no upload, just the
+          // process request (JSON body, same response shape as /api/upload).
+          xhr.open('POST', '/api/files/process');
+          xhr.setRequestHeader('Content-Type', 'application/json');
+          xhr.send(JSON.stringify({
+            title: title.value,
+            type: type.value,
+            path: entry.serverPath,
+            moveOriginals: entry.moveOriginals
+          }));
+          return;
+        }
+
+        const fd = new FormData();
+        fd.append('Title', title.value);
+        fd.append('Type', type.value);
+        fd.append('file', entry.file);
+        xhr.open('POST', '/api/upload');
+        xhr.upload.onprogress = e => {
+          if (!e.lengthComputable) return;
+          entry.progress = Math.min(99, Math.round((e.loaded / e.total) * 100));
+        };
+        xhr.upload.onload = () => {
+          // Bytes sent — server is now fetching metadata and running Calibre/Ghostscript
+          if (entry.status === 'uploading') entry.status = 'processing';
+        };
         xhr.send(fd);
       }
 
@@ -769,16 +907,27 @@
       // -------------------------------------------------------------
       // Lifecycle
       // -------------------------------------------------------------
+      // Whole-window drag & drop. Bound on window (not via the #app template)
+      // because #app is the mount container: with an in-DOM template Vue compiles
+      // only #app's innerHTML, so @-directives written on #app itself are inert
+      // HTML attributes and never become handlers.
+      function onWindowDragOver(e) { e.preventDefault(); }
+
       onMounted(() => {
         startTicker();
         window.addEventListener('keydown', onKeydown);
-        // Safety net: never let the browser open a dropped file outside the app
-        window.addEventListener('dragover', e => e.preventDefault());
-        window.addEventListener('drop', e => e.preventDefault());
+        window.addEventListener('dragenter', dragEnter);
+        window.addEventListener('dragover', onWindowDragOver);
+        window.addEventListener('dragleave', dragLeave);
+        window.addEventListener('drop', onDrop);
       });
       onBeforeUnmount(() => {
         stopTicker();
         window.removeEventListener('keydown', onKeydown);
+        window.removeEventListener('dragenter', dragEnter);
+        window.removeEventListener('dragover', onWindowDragOver);
+        window.removeEventListener('dragleave', dragLeave);
+        window.removeEventListener('drop', onDrop);
       });
 
       // -------------------------------------------------------------
@@ -790,12 +939,15 @@
         title, titleTouched, titleInput, type, apiKey, authRequired, theme,
         filesInput, pendingFiles, busy, windowDrag, lastIgnored,
         toasts, year,
+        sourceTab, serverEnabled, serverRoot, serverPath, serverPathSegments,
+        serverEntries, serverLoading, serverError, serverSelected, serverMoveOriginals,
         typeLabel, isComicType, nameHint, canSubmit, pendingCount, successCount, failCount, runningCount,
         doneCount, overallPct, primaryLabel, elapsedText, srStatus,
         maxConcurrent: MAX_CONCURRENT,
         onFiles, dragEnter, dragLeave, onDrop,
+        openServerTab, loadServerDir, serverUp, serverGoRoot, serverOpenDir, toggleServerEntry, addServerFiles,
         start, cancelAll, retryFailed, clearFinished, removeFile, toggleDetails, toggleError,
-        formatSize, statusLabel: s => statusLabel(t, s), phaseText, fileAriaLabel,
+        formatSize, extOf, statusLabel: s => statusLabel(t, s), phaseText, fileAriaLabel,
         hasDetails, detailsOf, factsOf,
         predictedName, linkHtml, errorHeadline, errorIsDetailed,
         saveApiKey, saveType, cycleTheme

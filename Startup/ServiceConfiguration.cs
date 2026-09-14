@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json.Serialization;
 using BooksMetadataBaker.Services.Comic;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.RateLimiting;
@@ -16,7 +17,11 @@ public static class ServiceConfiguration
     public static IServiceCollection ConfigureServices(this IServiceCollection services, IConfiguration configuration)
     {
         // API Services
-        services.AddControllers();
+        // JsonStringEnumConverter: the JSON API (POST /api/files/process) sends
+        // enums as their names (e.g. "type": "Manga"), matching the frontend.
+        // System.Text.Json's default would only bind numeric enum values.
+        services.AddControllers()
+            .AddJsonOptions(o => o.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
         services.AddEndpointsApiExplorer();
         services.AddSwaggerGen();
 

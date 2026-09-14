@@ -73,7 +73,20 @@
         errorDetails: 'see what happened ▾',
         createdArchives: 'Created archives',
         emptyState: 'Your shelf is empty for now — drop some PDFs, EPUBs, or comic archives above, then hit {bake}!',
-        parallel: 'Up to {n} files process in parallel. Server limits are handled smoothly — queued files will wait patiently and retry automatically.'
+        parallel: 'Up to {n} files process in parallel. Server limits are handled smoothly — queued files will wait patiently and retry automatically.',
+        sourceTabsAria: 'File source',
+        sourceTabLocal: 'This device',
+        sourceTabServer: 'Server volume',
+        serverTag: 'server'
+      },
+      server: {
+        up: 'Up one folder',
+        root: 'root',
+        refresh: 'Refresh',
+        loading: 'Loading folder…',
+        empty: 'This folder is empty.',
+        moveOriginals: 'Move originals into the library (source files are deleted)',
+        addSelected: 'Add {n} file to queue | Add {n} files to queue'
       },
       actionbar: {
         done: '{done} of {total} completed',

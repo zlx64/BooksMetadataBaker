@@ -14,7 +14,65 @@ public class UploadProcessingService(
     IKavitaMetadataWriter kavitaWriter,
     ILogger<UploadProcessingService> logger) : IUploadProcessingService
 {
-    public async Task<(EBookUploadProcessResult Result, IDictionary<string,string> Metadata, bool Cancelled, string? Error)> ProcessSingleAsync(UploadRequest info, IFormFile file, CancellationToken ct)
+    public Task<(EBookUploadProcessResult Result, IDictionary<string,string> Metadata, bool Cancelled, string? Error)> ProcessSingleAsync(UploadRequest info, IFormFile file, CancellationToken ct)
+    {
+        return ProcessCoreAsync(info, file.FileName, async (savePath, token) =>
+        {
+            await using var fs = File.Create(savePath);
+            await file.CopyToAsync(fs, token);
+        }, ct);
+    }
+
+    /// <summary>
+    /// Processes a file that already lives on the server (e.g. a Docker volume
+    /// mount). The source is copied to the organized save path, or moved when
+    /// <paramref name="moveOriginals"/> is set. When the source already sits at
+    /// the save path, no copy is performed (re-processing in place).
+    /// </summary>
+    public Task<(EBookUploadProcessResult Result, IDictionary<string,string> Metadata, bool Cancelled, string? Error)> ProcessServerFileAsync(UploadRequest info, string sourcePath, bool moveOriginals, CancellationToken ct)
+    {
+        var sourceFull = Path.GetFullPath(sourcePath);
+        if (!File.Exists(sourceFull))
+        {
+            logger.LogWarning("Server file not found: {Path}", sourceFull);
+            var error = "File not found";
+            (EBookUploadProcessResult Result, IDictionary<string,string> Metadata, bool Cancelled, string? Error) result =
+                (CreateErrorResult(Path.GetFileName(sourceFull), error, EBookFormat.Pdf, new Dictionary<string,string>()), new Dictionary<string,string>(), false, error);
+            return Task.FromResult(result);
+        }
+
+        return ProcessCoreAsync(info, Path.GetFileName(sourceFull), async (savePath, token) =>
+        {
+            if (IsSameFile(sourceFull, savePath))
+                return;
+            if (moveOriginals)
+            {
+                try
+                {
+                    File.Move(sourceFull, savePath, overwrite: true);
+                    return;
+                }
+                catch (IOException)
+                {
+                    // Cross-device move or locked file — fall back to copy + delete.
+                }
+            }
+            await using var src = File.OpenRead(sourceFull);
+            await using var dst = File.Create(savePath);
+            await src.CopyToAsync(dst, token);
+            if (moveOriginals)
+                File.Delete(sourceFull);
+        }, ct);
+
+        static bool IsSameFile(string a, string b) =>
+            string.Equals(a, Path.GetFullPath(b), OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+    }
+
+    private async Task<(EBookUploadProcessResult Result, IDictionary<string,string> Metadata, bool Cancelled, string? Error)> ProcessCoreAsync(
+        UploadRequest info,
+        string fileName,
+        Func<string, CancellationToken, Task> writeSource,
+        CancellationToken ct)
     {
         var root = config["PdfLibrary:RootFolder"];
         var typeFolderSection = config.GetSection("PdfLibrary:TypeFolders");
@@ -37,7 +95,7 @@ public class UploadProcessingService(
         var baseFolder = isAbsolute
             ? typeFolderRaw
             : Path.Combine(root!, Sanitize(typeFolderRaw));
-        var format = DetectFormat(file.FileName);
+        var format = DetectFormat(fileName);
         var isArchive = format.IsArchive();
         var specialsSubfolder = !bool.TryParse(config["MangaComics:SpecialsSubfolder"], out var ss) || ss;
         var useCurlyBraceYear = bool.TryParse(config["MangaComics:UseCurlyBraceYear"], out var cby) && cby;
@@ -61,12 +119,12 @@ public class UploadProcessingService(
         try
         {
             savePath = isArchive
-                ? GetArchiveSavePath(titleFolder, folderTitle, format.ToExtension(), parsed = ComicFilenameParser.Parse(file.FileName), specialsSubfolder)
-                : GetUniqueEBookPath(titleFolder, info.Title, file.FileName);
+                ? GetArchiveSavePath(titleFolder, folderTitle, format.ToExtension(), parsed = ComicFilenameParser.Parse(fileName), specialsSubfolder)
+                : GetUniqueEBookPath(titleFolder, info.Title, fileName);
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Failed to compute save path for {Name} (title={Title}, type={Type})", file.FileName, info.Title, info.Type);
+            logger.LogError(ex, "Failed to compute save path for {Name} (title={Title}, type={Type})", fileName, info.Title, info.Type);
             return (CreateErrorResult("", $"Save path resolution failed: {ex.GetType().Name}: {ex.Message}", format, new Dictionary<string,string>()), new Dictionary<string,string>(), false, ex.Message);
         }
         var saveDir = Path.GetDirectoryName(savePath)!;
@@ -103,16 +161,15 @@ public class UploadProcessingService(
                 {
                     logger.LogInformation("Overwriting existing file {Path}", savePath);
                 }
-                await using var fs = File.Create(savePath);
-                await file.CopyToAsync(fs, ct);
+                await writeSource(savePath, ct);
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Failed writing uploaded file to {Path}", savePath);
+                logger.LogError(ex, "Failed writing source file to {Path}", savePath);
                 return (CreateErrorResult(Path.GetFileName(savePath), $"Save file failed: {ex.GetType().Name}: {ex.Message}", format, new Dictionary<string,string>()), new Dictionary<string,string>(), false, ex.Message);
             }
 
-            var volumeToken = MetadataHelpers.ExtractVolumeToken(file.FileName);
+            var volumeToken = MetadataHelpers.ExtractVolumeToken(fileName);
             var meta = await metadataService.FetchMetadataAsync(info.Title, info.Type, volumeToken, ct);
             if (ct.IsCancellationRequested)
                 return (CreateCancelledResult(Path.GetFileName(savePath), format, meta), meta, true, null);

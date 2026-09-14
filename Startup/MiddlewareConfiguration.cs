@@ -48,7 +48,26 @@ public static class MiddlewareConfiguration
 
         // UI config probe (excluded from API-key auth; exposes no secrets)
         app.MapGet("/api/config", (IConfiguration cfg) =>
-            Results.Ok(new { authRequired = !string.IsNullOrWhiteSpace(cfg["Auth:ApiKey"]) }));
+        {
+            // Empty (not just missing) ServerFiles:RootFolder falls back to the
+            // library root — appsettings.json ships with "" by default.
+            var rawServerRoot = cfg["ServerFiles:RootFolder"];
+            var serverRoot = string.IsNullOrWhiteSpace(rawServerRoot)
+                ? (cfg["PdfLibrary:RootFolder"] ?? "")
+                : rawServerRoot;
+            var serverEnabled = bool.TryParse(cfg["ServerFiles:Enabled"], out var sfEnabled) && sfEnabled
+                && !string.IsNullOrWhiteSpace(serverRoot)
+                && Directory.Exists(serverRoot);
+            return Results.Ok(new
+            {
+                authRequired = !string.IsNullOrWhiteSpace(cfg["Auth:ApiKey"]),
+                serverFiles = new
+                {
+                    enabled = serverEnabled,
+                    root = serverEnabled ? Path.GetFullPath(serverRoot) : null
+                }
+            });
+        });
 
         // Optional API key protection for /api endpoints (active only when Auth:ApiKey is set)
         var apiKey = app.Configuration["Auth:ApiKey"];

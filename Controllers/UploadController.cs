@@ -1,3 +1,5 @@
+using BooksMetadataBaker.Services.Helpers;
+
 namespace BooksMetadataBaker.Controllers;
 
 [ApiController]
@@ -8,23 +10,9 @@ public class UploadController(IUploadProcessingService processor, IConfiguration
     // multipart/form overhead still fits under the per-request body limit.
     private const int MaxFileSize = 536870912;
 
-    private readonly bool mangaComicsEnabled =
-        !bool.TryParse(config["MangaComics:Enabled"], out var enabled) || enabled;
+    private readonly bool mangaComicsEnabled = UploadExtensions.IsMangaComicsEnabled(config);
 
-    private readonly string[] allowedExtensions = BuildAllowedExtensions(config);
-
-    private static string[] BuildAllowedExtensions(IConfiguration config)
-    {
-        // Config-driven archive list (plan §4.9); PDF/EPUB are always allowed.
-        // Raw containers (zip/rar/7z/tar) are accepted and saved as their Kavita
-        // equivalent (cbz/cbr/cb7/cbt) — see UploadProcessingService.DetectFormat.
-        var raw = config["MangaComics:AllowedExtensions"] ?? "cbz,cbr,cb7,cbt,zip,rar,7z,tar";
-        var archives = raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Select(e => e.StartsWith('.') ? e.ToLowerInvariant() : "." + e.ToLowerInvariant())
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-        return [".pdf", ".epub", .. archives];
-    }
+    private readonly string[] allowedExtensions = UploadExtensions.BuildAllowedExtensions(config);
 
     private string AllowedExtensionsText =>
         string.Join(", ", allowedExtensions.Select(e => e.TrimStart('.').ToUpperInvariant()));

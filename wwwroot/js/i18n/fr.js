@@ -74,7 +74,20 @@
         errorDetails: 'voir ce qu’il s’est passé ▾',
         createdArchives: 'Archives créées',
         emptyState: 'Votre étagère est vide pour l’instant — déposez des PDF, EPUB ou archives de comics ci-dessus, puis cliquez sur {bake} !',
-        parallel: 'Jusqu’à {n} fichiers traités en parallèle. Les limites du serveur sont gérées en douceur — les fichiers en attente patienteront et réessaieront automatiquement.'
+        parallel: 'Jusqu’à {n} fichiers traités en parallèle. Les limites du serveur sont gérées en douceur — les fichiers en attente patienteront et réessaieront automatiquement.',
+        sourceTabsAria: 'Source des fichiers',
+        sourceTabLocal: 'Cet appareil',
+        sourceTabServer: 'Volume du serveur',
+        serverTag: 'serveur'
+      },
+      server: {
+        up: 'Remonter d’un dossier',
+        root: 'racine',
+        refresh: 'Actualiser',
+        loading: 'Chargement du dossier…',
+        empty: 'Ce dossier est vide.',
+        moveOriginals: 'Déplacer les originaux vers la bibliothèque (les fichiers sources sont supprimés)',
+        addSelected: 'Ajouter {n} fichier à la file | Ajouter {n} fichiers à la file'
       },
       actionbar: {
         done: '{done} sur {total} terminés',

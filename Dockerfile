@@ -30,6 +30,8 @@ EXPOSE 8080
 #   MANGA_COMICS_ALLOWED_EXTENSIONS - comma-separated archive extensions (default: cbz,cbr,cb7,cbt,zip,rar,7z,tar; raw containers are saved as their Kavita equivalent)
 #   MANGA_COMICS_SPECIALS_SUBFOLDER - store specials in Specials/ subfolder (default: true)
 #   MANGA_COMICS_USE_CURLY_BRACE_YEAR - emit {YYYY} instead of (YYYY) for parsed years (default: false)
+#   SERVER_FILES_ENABLED - browse/queue files from a mounted volume instead of uploading (default: true)
+#   SERVER_FILES_DIR     - folder to browse, e.g. an "incoming" volume (default: ROOT_DIR / PdfLibrary:RootFolder)
 #   SEVEN_ZIP_PATH     - 7-Zip executable for CB7/CBR (default: 7z, falls back to 7zz)
 #   RAR_PATH           - optional WinRAR executable for CBR ComicInfo embedding
 # Directory values can be relative (subfolder of ROOT_DIR) or absolute (e.g. /mnt/comics)

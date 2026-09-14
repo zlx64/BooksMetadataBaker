@@ -73,7 +73,20 @@
         errorDetails: 'エラーの理由を確認 ▾',
         createdArchives: '作成されたアーカイブ',
         emptyState: '本棚はまだ空っぽです — 上のエリアにPDF、EPUB、マンガファイルをドロップして {bake} を押してください！',
-        parallel: '最大 {n} 個のファイルを並行して処理します。サーバーの制限に合わせて優しく調整されるため、順番待ちのファイルも自動的に再試行されます。'
+        parallel: '最大 {n} 個のファイルを並行して処理します。サーバーの制限に合わせて優しく調整されるため、順番待ちのファイルも自動的に再試行されます。',
+        sourceTabsAria: 'ファイルのソース',
+        sourceTabLocal: 'この端末',
+        sourceTabServer: 'サーバー上のフォルダー',
+        serverTag: 'サーバー'
+      },
+      server: {
+        up: '上一階層へ',
+        root: 'ルート',
+        refresh: '更新',
+        loading: 'フォルダーを読み込み中…',
+        empty: 'このフォルダーは空です。',
+        moveOriginals: '元のファイルをライブラリへ移動する（元のファイルは削除されます）',
+        addSelected: '選択した{n}件をキューに追加'
       },
       actionbar: {
         done: '{total} 件中 {done} 件完了',

@@ -9,8 +9,7 @@
     <link rel="stylesheet" href="/css/app.css" />
 </head>
 <body>
-    <div id="app" v-cloak
-         @dragenter.prevent="dragEnter" @dragover.prevent @dragleave="dragLeave" @drop.prevent="onDrop">
+    <div id="app" v-cloak>
         <!-- Whole-window drop overlay -->
         <div class="drop-overlay" v-show="windowDrag" aria-hidden="true">
             <div class="drop-overlay-box">
@@ -62,7 +61,7 @@
                         <template #comicvine><strong>ComicVine</strong></template>
                     </i18n-t>
                 </div>
-                <img class="hero-img" src="/img/baker.png" alt="" width="1000" height="853">
+                <img class="hero-img" src="/img/baker.png" alt="" width="1000" height="853" draggable="false">
             </section>
 
             <!-- Step 1 — Book details -->
@@ -116,22 +115,90 @@
                     </span>
                 </div>
 
-                <label class="dropzone" :class="{has: pendingFiles.length, drag: windowDrag}" for="files">
-                    <input id="files" ref="filesInput" class="sr-only" type="file"
-                            accept=".pdf,.epub,.cbz,.cbr,.cb7,.cbt,.zip,.rar,.7z,.tar,application/pdf,application/epub+zip,application/zip,application/x-zip-compressed,application/rar,application/x-rar,application/x-rar-compressed,application/x-7z-compressed,application/x-tar" multiple @change="onFiles" />
-                    <span class="dz-icon" aria-hidden="true">
-                        <svg viewBox="0 0 24 24"><path d="M12 3l5 5h-3v6h-4V8H7l5-5zM5 19h14v2H5z"/></svg>
-                    </span>
-                    <i18n-t v-if="!pendingFiles.length" keypath="step2.dzTitle" tag="span" class="dz-title">
-                        <template #browse><strong>{{ $t('step2.browse') }}</strong></template>
-                    </i18n-t>
-                    <span class="dz-title" v-else>{{ $t('step2.dzMore') }}</span>
-                    <span class="dz-sub">{{ $t('step2.dzSub') }}</span>
-                </label>
+                <div class="source-tabs" role="tablist" :aria-label="$t('step2.sourceTabsAria')">
+                    <button type="button" class="source-tab" role="tab"
+                            :aria-selected="sourceTab === 'local'" :class="{active: sourceTab === 'local'}"
+                            @click="sourceTab = 'local'">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zm1 2v7h14V6H5zM2 17h20v2H2z"/></svg>
+                        {{ $t('step2.sourceTabLocal') }}
+                    </button>
+                    <button v-if="serverEnabled" type="button" class="source-tab" role="tab"
+                            :aria-selected="sourceTab === 'server'" :class="{active: sourceTab === 'server'}"
+                            @click="openServerTab">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 3h16a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zm0 10h16a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-5a1 1 0 0 1 1-1zM6 6.5A1.5 1.5 0 1 1 6 9.5 1.5 1.5 0 0 1 6 6.5zm0 10A1.5 1.5 0 1 1 6 19.5 1.5 1.5 0 0 1 6 16.5z"/></svg>
+                        {{ $t('step2.sourceTabServer') }}
+                    </button>
+                </div>
 
-                <p v-if="lastIgnored.length" class="hint warn" role="alert">
-                    {{ $t('step2.skipped', { n: lastIgnored.length, list: lastIgnored.slice(0, 5).join(', ') + (lastIgnored.length > 5 ? '…' : '') }) }}
-                </p>
+                <!-- Source: this device (dropzone) -->
+                <div v-show="sourceTab === 'local'">
+                    <label class="dropzone" :class="{has: pendingFiles.length, drag: windowDrag}" for="files">
+                        <input id="files" ref="filesInput" class="sr-only" type="file"
+                                accept=".pdf,.epub,.cbz,.cbr,.cb7,.cbt,.zip,.rar,.7z,.tar,application/pdf,application/epub+zip,application/zip,application/x-zip-compressed,application/rar,application/x-rar,application/x-rar-compressed,application/x-7z-compressed,application/x-tar" multiple @change="onFiles" />
+                        <span class="dz-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24"><path d="M12 3l5 5h-3v6h-4V8H7l5-5zM5 19h14v2H5z"/></svg>
+                        </span>
+                        <i18n-t v-if="!pendingFiles.length" keypath="step2.dzTitle" tag="span" class="dz-title">
+                            <template #browse><strong>{{ $t('step2.browse') }}</strong></template>
+                        </i18n-t>
+                        <span class="dz-title" v-else>{{ $t('step2.dzMore') }}</span>
+                        <span class="dz-sub">{{ $t('step2.dzSub') }}</span>
+                    </label>
+
+                    <p v-if="lastIgnored.length" class="hint warn" role="alert">
+                        {{ $t('step2.skipped', { n: lastIgnored.length, list: lastIgnored.slice(0, 5).join(', ') + (lastIgnored.length > 5 ? '…' : '') }) }}
+                    </p>
+                </div>
+
+                <!-- Source: server volume (browsed on the server) -->
+                <div v-if="serverEnabled" v-show="sourceTab === 'server'" class="server-browser">
+                    <div class="sb-toolbar">
+                        <button type="button" class="sb-nav" :disabled="serverLoading || !serverPath"
+                                :title="$t('server.up')" :aria-label="$t('server.up')" @click="serverUp">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 7.4 6.6 12.8l1.4 1.4 4-4 4 4 1.4-1.4z"/></svg>
+                        </button>
+                        <span class="sb-path" :title="serverRoot + (serverPath ? '/' + serverPath : '')">
+                            <button type="button" class="sb-root" :disabled="serverLoading" @click="serverGoRoot">{{ $t('server.root') }}</button>
+                            <template v-for="(seg, i) in serverPathSegments" :key="i">
+                                <span class="sb-sep" aria-hidden="true">/</span><span class="sb-seg">{{ seg }}</span>
+                            </template>
+                        </span>
+                        <button type="button" class="sb-nav" :disabled="serverLoading"
+                                :title="$t('server.refresh')" :aria-label="$t('server.refresh')" @click="loadServerDir(serverPath)">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5V1L7 6l5 5V7a5 5 0 1 1-5 5H5a7 7 0 1 0 7-7z"/></svg>
+                        </button>
+                    </div>
+
+                    <p v-if="serverError" class="hint warn" role="alert">{{ serverError }}</p>
+                    <p v-else-if="serverLoading" class="hint">{{ $t('server.loading') }}</p>
+                    <p v-else-if="!serverEntries.length" class="hint">{{ $t('server.empty') }}</p>
+
+                    <ul v-else class="sb-list">
+                        <li v-for="e in serverEntries" :key="e.path">
+                            <button v-if="e.isDir" type="button" class="sb-entry sb-dir" @click="serverOpenDir(e)">
+                                <svg class="sb-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h6l2 2h8a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/></svg>
+                                <span class="sb-name" :title="e.name">{{ e.name }}</span>
+                            </button>
+                            <label v-else class="sb-entry sb-file" :class="{off: !e.selectable}">
+                                <input v-if="e.selectable" type="checkbox" :checked="serverSelected.has(e.path)"
+                                       @change="toggleServerEntry(e, $event.target.checked)" />
+                                <span class="fmt-badge" :class="'fmt-' + extOf(e.name)" aria-hidden="true">{{ extOf(e.name).toUpperCase() }}</span>
+                                <span class="sb-name" :title="e.name">{{ e.name }}</span>
+                                <span class="file-size">{{ formatSize(e.size) }}</span>
+                            </label>
+                        </li>
+                    </ul>
+
+                    <div class="sb-footer">
+                        <label class="sb-move">
+                            <input type="checkbox" v-model="serverMoveOriginals" />
+                            <span>{{ $t('server.moveOriginals') }}</span>
+                        </label>
+                        <button type="button" class="secondary" :disabled="!serverSelected.size" @click="addServerFiles">
+                            {{ $t('server.addSelected', serverSelected.size) }}
+                        </button>
+                    </div>
+                </div>
 
                 <ul class="file-list" v-if="pendingFiles.length">
                     <li v-for="f in pendingFiles" :key="f.uid" class="file-item" :class="'st-' + f.status">
@@ -145,6 +212,7 @@
                             <span class="file-info">
                                 <span class="file-line1">
                                     <span class="file-name" :title="f.name">{{ f.name }}</span>
+                                    <span v-if="f.source === 'server'" class="src-badge">{{ $t('step2.serverTag') }}</span>
                                     <span class="file-size">{{ formatSize(f.size) }}</span>
                                 </span>
                                 <span class="file-line2">
