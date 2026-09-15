@@ -1,3 +1,4 @@
+using BooksMetadataBaker.Services.Comic;
 using BooksMetadataBaker.Services.Helpers;
 
 namespace BooksMetadataBaker.Controllers;
@@ -35,7 +36,7 @@ public class FilesController(IUploadProcessingService processor, IConfiguration 
         if (!Directory.Exists(dirFull))
             return NotFound("Folder not found");
 
-        var entries = ListDirectory(rootFull, dirFull, SelectableExtensions);
+        var entries = ListDirectory(rootFull, dirFull, SelectableExtensions, mangaComicsEnabled);
         var parent = string.Equals(dirFull, rootFull, StringComparison.Ordinal)
             ? null
             : ToRelative(rootFull, Directory.GetParent(dirFull)!.FullName);
@@ -53,22 +54,55 @@ public class FilesController(IUploadProcessingService processor, IConfiguration 
         if (string.IsNullOrWhiteSpace(request.Title))
             return BadRequest("Title required");
 
-        var fileFull = ResolveUnderRoot(rootFull, request.Path, out var error);
-        if (fileFull is null)
+        var targetFull = ResolveUnderRoot(rootFull, request.Path, out var error);
+        if (targetFull is null)
             return BadRequest(error);
-        if (!System.IO.File.Exists(fileFull))
+
+        if (Directory.Exists(targetFull))
+        {
+            if (!mangaComicsEnabled)
+                return BadRequest("Manga/comics uploads are disabled");
+            var images = ImageFolderArchiver.GetImageFiles(targetFull);
+            if (images.Count == 0)
+                return BadRequest("No image files found in folder");
+            var totalSize = images.Sum(image =>
+            {
+                try
+                {
+                    return new FileInfo(Path.Combine(targetFull, image.Replace('/', Path.DirectorySeparatorChar))).Length;
+                }
+                catch
+                {
+                    return 0;
+                }
+            });
+            if (totalSize > MaxFileSize)
+                return BadRequest("Folder is too large (max 500 MB)");
+
+            var (folderResult, folderMetadata, folderCancelled, folderError) = await processor.ProcessServerImageFolderAsync(
+                new UploadRequest { Title = request.Title, Type = request.Type }, targetFull, request.MoveOriginals, ct);
+            if (folderError != null && string.IsNullOrWhiteSpace(folderResult.File))
+            {
+                logger.LogWarning("Server image folder rejected: {Error}", folderError);
+                return StatusCode(500, "Internal server error");
+            }
+
+            return Ok(new { Files = new[] { folderResult }, Metadata = folderMetadata, Cancelled = folderCancelled });
+        }
+
+        if (!System.IO.File.Exists(targetFull))
             return NotFound("File not found");
 
-        var extension = Path.GetExtension(fileFull).ToLowerInvariant();
+        var extension = Path.GetExtension(targetFull).ToLowerInvariant();
         if (!allowedExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase))
             return BadRequest($"Ebook or comic file required ({AllowedExtensionsText})");
         if (!mangaComicsEnabled && extension is not (".pdf" or ".epub"))
             return BadRequest("Manga/comics uploads are disabled");
-        if (new FileInfo(fileFull).Length > MaxFileSize)
+        if (new FileInfo(targetFull).Length > MaxFileSize)
             return BadRequest("File is too large (max 500 MB)");
 
         var (result, metadata, cancelled, procError) = await processor.ProcessServerFileAsync(
-            new UploadRequest { Title = request.Title, Type = request.Type }, fileFull, request.MoveOriginals, ct);
+            new UploadRequest { Title = request.Title, Type = request.Type }, targetFull, request.MoveOriginals, ct);
         if (procError != null && string.IsNullOrWhiteSpace(result.File))
         {
             logger.LogWarning("Server file rejected: {Error}", procError);
@@ -147,16 +181,18 @@ public class FilesController(IUploadProcessingService processor, IConfiguration 
     /// <summary>
     /// Lists a directory: subdirectories first, then files, in case-insensitive
     /// name order. Dotfiles are hidden; each file gets a selectable flag based
-    /// on the allowed upload extensions.
+    /// on the allowed upload extensions. Directories containing direct images are
+    /// selectable as image folders when <paramref name="imageFoldersEnabled"/>.
     /// </summary>
-    public static List<ServerFileEntry> ListDirectory(string rootFull, string dirFull, string[] selectableExtensions)
+    public static List<ServerFileEntry> ListDirectory(string rootFull, string dirFull, string[] selectableExtensions, bool imageFoldersEnabled = true)
     {
         var entries = new List<ServerFileEntry>();
         foreach (var dir in Directory.EnumerateDirectories(dirFull))
         {
             var name = Path.GetFileName(dir);
             if (name.StartsWith('.')) continue;
-            entries.Add(new ServerFileEntry(name, ToRelative(rootFull, dir), true, 0, false));
+            var hasImages = imageFoldersEnabled && ImageFolderArchiver.HasDirectImageFiles(dir);
+            entries.Add(new ServerFileEntry(name, ToRelative(rootFull, dir), true, 0, hasImages, hasImages));
         }
         foreach (var file in Directory.EnumerateFiles(dirFull))
         {

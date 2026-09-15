@@ -759,6 +759,13 @@ public class ArchiveComicInfoWriter : IArchiveComicInfoWriter
         return true;
     }
 
+    public static bool IsImageFile(string? name)
+    {
+        if (string.IsNullOrEmpty(name))
+            return false;
+        return ImageExtensions.Contains(Path.GetExtension(name));
+    }
+
     private static int CountPages(IEnumerable<string?> names)
     {
         var count = 0;

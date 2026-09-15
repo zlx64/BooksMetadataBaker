@@ -481,6 +481,22 @@ label[type-opt]:focus-within, .file-main:focus-visible, .dropzone:focus-within {
 .drop-overlay-title { margin: 0; font-family: var(--font-serif); font-size: 1.25rem; font-weight: 700; }
 .drop-overlay-sub { margin: 0; color: var(--soft); font-size: .88rem; }
 
+.local-source-actions {
+  display: flex;
+  justify-content: center;
+  margin-top: .65rem;
+}
+.folder-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: .45rem;
+}
+.folder-btn svg {
+  width: 15px;
+  height: 15px;
+  fill: currentColor;
+}
+
 /* 7b. Source tabs + server volume browser ------------------------------------------ */
 .source-tabs {
   display: flex;
@@ -614,6 +630,39 @@ label[type-opt]:focus-within, .file-main:focus-visible, .dropzone:focus-within {
 .sb-file .fmt-badge { flex: 0 0 auto; }
 .sb-file.off { opacity: .5; cursor: default; }
 .sb-file.off:hover { background: transparent; border-color: transparent; }
+
+.sb-dir-selectable { padding-right: .35rem; }
+.sb-dir-selectable input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: 15px; height: 15px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.sb-dir-selectable.selected {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+.sb-open {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 26px; height: 26px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  color: var(--soft);
+  cursor: pointer;
+  transition: color .15s ease, border-color .15s ease, background .15s ease;
+}
+.sb-open:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.sb-open svg {
+  width: 14px; height: 14px;
+  fill: currentColor;
+}
 
 .sb-footer {
   display: flex;

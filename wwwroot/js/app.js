@@ -23,6 +23,7 @@
   const LS = { apiKey: 'bmb.apiKey', type: 'bmb.type', theme: 'bmb.theme', locale: 'bmb.locale' };
   const ALLOWED_EXTS = ['pdf', 'epub', 'cbz', 'cbr', 'cb7', 'cbt', 'zip', 'rar', '7z', 'tar'];
   const COMIC_EXTS = ['cbz', 'cbr', 'cb7', 'cbt', 'zip', 'rar', '7z', 'tar'];
+  const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'avif', 'tiff', 'tif', 'heic', 'heif'];
   // Raw containers the server converts to their Kavita equivalent (P9):
   // the predicted saved name shows the *output* extension.
   const KAVITA_EXT = { zip: 'cbz', '7z': 'cb7', rar: 'cbr', tar: 'cbt' };
@@ -239,6 +240,7 @@
       const theme = ref(['light', 'dark', 'auto'].includes(lsGet(LS.theme)) ? lsGet(LS.theme) : 'light');
 
       const filesInput = ref(null);
+      const imageFolderInput = ref(null);
       const pendingFiles = reactive([]); // { uid, file, name, size, ext, progress, status, error, attempts, skip, expanded, details (raw meta), factData, savedName, throttleRetries, retryAt, _xhr, source ('local'|'server'), serverPath, moveOriginals, dedupeKey }
       const busy = ref(false);
       const windowDrag = ref(false);
@@ -415,23 +417,24 @@
       }
 
       function addServerFiles() {
-        const chosen = serverEntries.value.filter(e => !e.isDir && serverSelected.has(e.path));
+        const chosen = serverEntries.value.filter(e => serverSelected.has(e.path) && (!e.isDir || e.hasImages));
         if (!chosen.length) return;
         const existing = new Set(pendingFiles.map(f => f.dedupeKey));
         let added = 0;
         for (const e of chosen) {
-          const ext = extOf(e.name);
-          if (!ALLOWED_EXTS.includes(ext)) continue; // defensive: server marks selectable
-          const dedupeKey = 'srv|' + e.path;
+          const ext = e.isDir ? 'cbz' : extOf(e.name);
+          if (!e.isDir && !ALLOWED_EXTS.includes(ext)) continue; // defensive: server marks selectable
+          const dedupeKey = 'srv|' + (e.isDir ? 'dir|' : '') + e.path;
           if (existing.has(dedupeKey)) continue;
           existing.add(dedupeKey);
-          const item = makeItem(e.name, e.size, ext, {
+          const item = makeItem(e.name, e.isDir ? 0 : e.size, ext, {
             source: 'server',
             serverPath: e.path,
+            isDir: e.isDir,
             moveOriginals: serverMoveOriginals.value,
             dedupeKey
           });
-          if (e.size > MAX_FILE_SIZE) {
+          if (!e.isDir && e.size > MAX_FILE_SIZE) {
             item.status = 'error';
             item.skip = true;
             item.error = t('errors.tooLarge');
@@ -467,12 +470,58 @@
         if (filesInput.value) filesInput.value.value = ''; // allow re-selecting the same file
       }
 
+      function openImageFolderPicker() {
+        if (imageFolderInput.value) imageFolderInput.value.click();
+      }
+
+      function onImageFolder() {
+        const input = imageFolderInput.value;
+        const incoming = Array.from(input && input.files || []);
+        if (input) input.value = '';
+        const imageFiles = incoming.filter(f => IMAGE_EXTS.includes(extOf(f.name)));
+        if (!imageFiles.length) {
+          toast(t('errors.noImages'), 'warn');
+          return;
+        }
+
+        const relativePaths = imageFiles.map(f => f.webkitRelativePath || f.relativePath || '');
+        const firstSegments = (relativePaths.find(Boolean) || '').split('/').filter(Boolean);
+        const folderName = firstSegments.length > 1
+          ? firstSegments[0]
+          : (title.value.trim() || 'Image Folder');
+        const paths = imageFiles.map((f, i) => {
+          const rel = relativePaths[i] || f.name;
+          const prefix = folderName + '/';
+          return rel.startsWith(prefix) ? rel.slice(prefix.length) : rel;
+        });
+
+        const totalSize = imageFiles.reduce((sum, f) => sum + f.size, 0);
+        const dedupeKey = 'folder|' + folderName + '|' + totalSize + '|' + paths.join('|');
+        if (pendingFiles.some(f => f.dedupeKey === dedupeKey)) return;
+
+        const item = makeItem(folderName, totalSize, 'cbz', {
+          source: 'local-folder',
+          files: imageFiles,
+          folderName,
+          folderPaths: paths,
+          dedupeKey
+        });
+        if (totalSize > MAX_FILE_SIZE) {
+          item.status = 'error';
+          item.skip = true;
+          item.error = t('errors.folderTooLarge');
+        }
+        pendingFiles.push(item);
+        toast(t('toasts.folderAdded'), 'info');
+      }
+
       // Queue row factory — shared by local (upload) and server (in-place) files.
       // status: pending | uploading | processing | throttled | success | error | canceled
       function makeItem(name, size, ext, extra) {
         return Object.assign({
           uid: ++uidSeq,
           file: null,
+          files: null,
           name, size, ext,
           progress: 0,
           status: 'pending',
@@ -489,6 +538,9 @@
           _xhr: null,
           source: 'local',
           serverPath: null,
+          folderName: null,
+          folderPaths: null,
+          isDir: false,
           moveOriginals: false,
           dedupeKey: name + '|' + size
         }, extra || {});
@@ -749,6 +801,25 @@
           return;
         }
 
+        if (entry.source === 'local-folder') {
+          const folderForm = new FormData();
+          folderForm.append('Title', title.value);
+          folderForm.append('Type', type.value);
+          folderForm.append('folderName', entry.folderName || '');
+          folderForm.append('paths', JSON.stringify(entry.folderPaths || []));
+          for (const file of entry.files || []) folderForm.append('files', file, file.name);
+          xhr.open('POST', '/api/upload/image-folder');
+          xhr.upload.onprogress = e => {
+            if (!e.lengthComputable) return;
+            entry.progress = Math.min(99, Math.round((e.loaded / e.total) * 100));
+          };
+          xhr.upload.onload = () => {
+            if (entry.status === 'uploading') entry.status = 'processing';
+          };
+          xhr.send(folderForm);
+          return;
+        }
+
         const fd = new FormData();
         fd.append('Title', title.value);
         fd.append('Type', type.value);
@@ -937,14 +1008,14 @@
         types: TYPES,
         locale, setLocale, locales: BMB_I18N.locales,
         title, titleTouched, titleInput, type, apiKey, authRequired, theme,
-        filesInput, pendingFiles, busy, windowDrag, lastIgnored,
+        filesInput, imageFolderInput, pendingFiles, busy, windowDrag, lastIgnored,
         toasts, year,
         sourceTab, serverEnabled, serverRoot, serverPath, serverPathSegments,
         serverEntries, serverLoading, serverError, serverSelected, serverMoveOriginals,
         typeLabel, isComicType, nameHint, canSubmit, pendingCount, successCount, failCount, runningCount,
         doneCount, overallPct, primaryLabel, elapsedText, srStatus,
         maxConcurrent: MAX_CONCURRENT,
-        onFiles, dragEnter, dragLeave, onDrop,
+        onFiles, openImageFolderPicker, onImageFolder, dragEnter, dragLeave, onDrop,
         openServerTab, loadServerDir, serverUp, serverGoRoot, serverOpenDir, toggleServerEntry, addServerFiles,
         start, cancelAll, retryFailed, clearFinished, removeFile, toggleDetails, toggleError,
         formatSize, extOf, statusLabel: s => statusLabel(t, s), phaseText, fileAriaLabel,

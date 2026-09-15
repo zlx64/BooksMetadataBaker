@@ -77,7 +77,8 @@
         sourceTabsAria: 'File source',
         sourceTabLocal: 'This device',
         sourceTabServer: 'Server volume',
-        serverTag: 'server'
+        serverTag: 'server',
+        chooseImageFolder: 'Choose an image folder'
       },
       server: {
         up: 'Up one folder',
@@ -86,7 +87,8 @@
         loading: 'Loading folder…',
         empty: 'This folder is empty.',
         moveOriginals: 'Move originals into the library (source files are deleted)',
-        addSelected: 'Add {n} file to queue | Add {n} files to queue'
+        addSelected: 'Add {n} file to queue | Add {n} files to queue',
+        openFolder: 'Open folder'
       },
       actionbar: {
         done: '{done} of {total} completed',
@@ -107,6 +109,7 @@
       },
       toasts: {
         added: '{n} file added to shelf | {n} files added to shelf',
+        folderAdded: 'Image folder added to shelf',
         enterTitle: 'Please enter a book title first',
         addFiles: 'Add at least one PDF, EPUB, or comic file to continue',
         baked: '{n} file baked successfully! | {n} files baked successfully!',
@@ -134,6 +137,8 @@
       },
       errors: {
         tooLarge: 'File is a bit too large — max limit is 500 MB',
+        folderTooLarge: 'Image folder is a bit too large — max limit is 500 MB',
+        noImages: 'No supported image files were found in that folder',
         unexpected: 'Unexpected response from the server',
         rateLimit: 'Server is receiving too many requests — take a quick minute and try again',
         network: 'Connection lost — couldn’t reach the server',

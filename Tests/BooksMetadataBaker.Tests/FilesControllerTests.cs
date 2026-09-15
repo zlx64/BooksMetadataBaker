@@ -21,6 +21,9 @@ public class FilesControllerTests
         public string? LastSourcePath;
         public bool LastMoveOriginals;
         public int Calls;
+        public string? LastFolderSourcePath;
+        public bool LastFolderMoveOriginals;
+        public int FolderCalls;
         public (EBookUploadProcessResult Result, IDictionary<string, string> Metadata, bool Cancelled, string? Error) Next;
 
         public Task<(EBookUploadProcessResult Result, IDictionary<string, string> Metadata, bool Cancelled, string? Error)> ProcessSingleAsync(UploadRequest info, IFormFile file, CancellationToken ct)
@@ -34,6 +37,18 @@ public class FilesControllerTests
             LastMoveOriginals = moveOriginals;
             return Task.FromResult(Next);
         }
+
+        public Task<(EBookUploadProcessResult Result, IDictionary<string, string> Metadata, bool Cancelled, string? Error)> ProcessServerImageFolderAsync(UploadRequest info, string sourceFolder, bool moveOriginals, CancellationToken ct)
+        {
+            FolderCalls++;
+            LastRequest = info;
+            LastFolderSourcePath = sourceFolder;
+            LastFolderMoveOriginals = moveOriginals;
+            return Task.FromResult(Next);
+        }
+
+        public Task<(EBookUploadProcessResult Result, IDictionary<string, string> Metadata, bool Cancelled, string? Error)> ProcessImageFolderUploadAsync(UploadRequest info, IFormFileCollection files, string? folderName, string? relativePathsJson, CancellationToken ct)
+            => Task.FromResult(Next);
     }
 
     private static FakeProcessor SuccessProcessor() => new()
@@ -602,6 +617,188 @@ public class FilesControllerTests
                 CancellationToken.None);
 
             Assert.IsType<OkObjectResult>(result);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ListDirectory_MarksDirectoriesWithDirectImages()
+    {
+        var root = CreateTempDir();
+        try
+        {
+            var images = Path.Combine(root, "images");
+            Directory.CreateDirectory(images);
+            File.WriteAllText(Path.Combine(images, "01.jpg"), "x");
+            var plain = Path.Combine(root, "plain");
+            Directory.CreateDirectory(plain);
+            File.WriteAllText(Path.Combine(plain, "notes.txt"), "x");
+
+            var entries = FilesController.ListDirectory(root, root, [".cbz"], true);
+
+            var imageEntry = entries.Single(e => e.Name == "images");
+            Assert.True(imageEntry.HasImages);
+            Assert.True(imageEntry.Selectable);
+
+            var plainEntry = entries.Single(e => e.Name == "plain");
+            Assert.False(plainEntry.HasImages);
+            Assert.False(plainEntry.Selectable);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ListDirectory_ImageFoldersDisabled_DirectoriesAreNotSelectable()
+    {
+        var root = CreateTempDir();
+        try
+        {
+            var images = Path.Combine(root, "images");
+            Directory.CreateDirectory(images);
+            File.WriteAllText(Path.Combine(images, "01.jpg"), "x");
+
+            var entries = FilesController.ListDirectory(root, root, [".cbz"], false);
+
+            var imageEntry = entries.Single(e => e.Name == "images");
+            Assert.False(imageEntry.HasImages);
+            Assert.False(imageEntry.Selectable);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Browse_DirectoryWithImages_MarksHasImages()
+    {
+        var root = CreateTempDir();
+        try
+        {
+            var images = Path.Combine(root, "images");
+            Directory.CreateDirectory(images);
+            File.WriteAllText(Path.Combine(images, "01.jpg"), "x");
+
+            var controller = CreateController(SuccessProcessor(), ConfigWith(root));
+            var result = controller.Browse(null);
+
+            var ok = Assert.IsType<OkObjectResult>(result);
+            var entries = (List<ServerFileEntry>)Prop(ok.Value, "entries")!;
+            var imageEntry = entries.Single(e => e.Name == "images");
+            Assert.True(imageEntry.HasImages);
+            Assert.True(imageEntry.Selectable);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Process_DirectoryWithImages_CallsFolderProcessor()
+    {
+        var root = CreateTempDir();
+        try
+        {
+            var folder = Path.Combine(root, "My Series vol01");
+            Directory.CreateDirectory(folder);
+            File.WriteAllText(Path.Combine(folder, "01.jpg"), "x");
+            var processor = SuccessProcessor();
+            var controller = CreateController(processor, ConfigWith(root));
+
+            var result = await controller.Process(
+                new ServerFileRequest { Title = "My Series", Type = BookType.Manga, Path = "My Series vol01" },
+                CancellationToken.None);
+
+            Assert.IsType<OkObjectResult>(result);
+            Assert.Equal(1, processor.FolderCalls);
+            Assert.Equal(0, processor.Calls);
+            Assert.Equal(folder, processor.LastFolderSourcePath);
+            Assert.False(processor.LastFolderMoveOriginals);
+            Assert.Equal("My Series", processor.LastRequest!.Title);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Process_DirectoryMoveOriginals_IsPassedThrough()
+    {
+        var root = CreateTempDir();
+        try
+        {
+            var folder = Path.Combine(root, "images");
+            Directory.CreateDirectory(folder);
+            File.WriteAllText(Path.Combine(folder, "01.jpg"), "x");
+            var processor = SuccessProcessor();
+            var controller = CreateController(processor, ConfigWith(root));
+
+            var result = await controller.Process(
+                new ServerFileRequest { Title = "T", Type = BookType.Manga, Path = "images", MoveOriginals = true },
+                CancellationToken.None);
+
+            Assert.IsType<OkObjectResult>(result);
+            Assert.True(processor.LastFolderMoveOriginals);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Process_DirectoryWithoutImages_Returns400()
+    {
+        var root = CreateTempDir();
+        try
+        {
+            var folder = Path.Combine(root, "empty-images");
+            Directory.CreateDirectory(folder);
+            File.WriteAllText(Path.Combine(folder, "notes.txt"), "x");
+            var processor = SuccessProcessor();
+            var controller = CreateController(processor, ConfigWith(root));
+
+            var result = await controller.Process(
+                new ServerFileRequest { Title = "T", Type = BookType.Manga, Path = "empty-images" },
+                CancellationToken.None);
+
+            Assert.IsType<BadRequestObjectResult>(result);
+            Assert.Equal(0, processor.FolderCalls);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Process_DirectoryMangaDisabled_Returns400()
+    {
+        var root = CreateTempDir();
+        try
+        {
+            var folder = Path.Combine(root, "images");
+            Directory.CreateDirectory(folder);
+            File.WriteAllText(Path.Combine(folder, "01.jpg"), "x");
+            var config = ConfigWith(root);
+            config["MangaComics:Enabled"] = "false";
+            var processor = SuccessProcessor();
+            var controller = CreateController(processor, config);
+
+            var result = await controller.Process(
+                new ServerFileRequest { Title = "T", Type = BookType.Manga, Path = "images" },
+                CancellationToken.None);
+
+            Assert.IsType<BadRequestObjectResult>(result);
+            Assert.Equal(0, processor.FolderCalls);
         }
         finally
         {

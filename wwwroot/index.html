@@ -148,6 +148,14 @@
                     <p v-if="lastIgnored.length" class="hint warn" role="alert">
                         {{ $t('step2.skipped', { n: lastIgnored.length, list: lastIgnored.slice(0, 5).join(', ') + (lastIgnored.length > 5 ? '…' : '') }) }}
                     </p>
+
+                    <div v-if="isComicType" class="local-source-actions">
+                        <button type="button" class="secondary folder-btn" @click="openImageFolderPicker">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h6l2 2h8a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zm3 8h2v2H7v-2zm4 0h2v2h-2v-2zm4 0h2v2h-2v-2z"/></svg>
+                            {{ $t('step2.chooseImageFolder') }}
+                        </button>
+                        <input ref="imageFolderInput" class="sr-only" type="file" multiple webkitdirectory directory @change="onImageFolder" />
+                    </div>
                 </div>
 
                 <!-- Source: server volume (browsed on the server) -->
@@ -175,7 +183,21 @@
 
                     <ul v-else class="sb-list">
                         <li v-for="e in serverEntries" :key="e.path">
-                            <button v-if="e.isDir" type="button" class="sb-entry sb-dir" @click="serverOpenDir(e)">
+                            <div v-if="e.isDir && e.hasImages"
+                                 class="sb-entry sb-dir sb-dir-selectable"
+                                 :class="{selected: serverSelected.has(e.path)}">
+                                <input type="checkbox" :checked="serverSelected.has(e.path)"
+                                       :aria-label="e.name"
+                                       @change="toggleServerEntry(e, $event.target.checked)" />
+                                <svg class="sb-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h6l2 2h8a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/></svg>
+                                <span class="sb-name" :title="e.name" @click="serverOpenDir(e)">{{ e.name }}</span>
+                                <button type="button" class="sb-open"
+                                        :title="$t('server.openFolder')" :aria-label="$t('server.openFolder')"
+                                        @click.stop="serverOpenDir(e)">
+                                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5l7 7-7 7v-4H5v-6h7z"/></svg>
+                                </button>
+                            </div>
+                            <button v-else-if="e.isDir" type="button" class="sb-entry sb-dir" @click="serverOpenDir(e)">
                                 <svg class="sb-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h6l2 2h8a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/></svg>
                                 <span class="sb-name" :title="e.name">{{ e.name }}</span>
                             </button>

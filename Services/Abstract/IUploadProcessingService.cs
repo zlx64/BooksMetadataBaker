@@ -10,4 +10,8 @@ public interface IUploadProcessingService
     /// the source into the library; otherwise it is copied and the source stays.
     /// </summary>
     Task<(EBookUploadProcessResult Result, IDictionary<string,string> Metadata, bool Cancelled, string? Error)> ProcessServerFileAsync(UploadRequest info, string sourcePath, bool moveOriginals, CancellationToken ct);
+
+    Task<(EBookUploadProcessResult Result, IDictionary<string,string> Metadata, bool Cancelled, string? Error)> ProcessServerImageFolderAsync(UploadRequest info, string sourceFolder, bool moveOriginals, CancellationToken ct);
+
+    Task<(EBookUploadProcessResult Result, IDictionary<string,string> Metadata, bool Cancelled, string? Error)> ProcessImageFolderUploadAsync(UploadRequest info, IFormFileCollection files, string? folderName, string? relativePathsJson, CancellationToken ct);
 }

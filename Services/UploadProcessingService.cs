@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Collections.Concurrent;
+using System.Text.Json;
 using BooksMetadataBaker.Services.Comic;
 using BooksMetadataBaker.Services.Helpers;
 using BooksMetadataBaker.Services.Types;
@@ -66,6 +67,149 @@ public class UploadProcessingService(
 
         static bool IsSameFile(string a, string b) =>
             string.Equals(a, Path.GetFullPath(b), OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+    }
+
+    public Task<(EBookUploadProcessResult Result, IDictionary<string,string> Metadata, bool Cancelled, string? Error)> ProcessServerImageFolderAsync(UploadRequest info, string sourceFolder, bool moveOriginals, CancellationToken ct)
+    {
+        var sourceFull = Path.GetFullPath(sourceFolder);
+        if (!Directory.Exists(sourceFull))
+        {
+            logger.LogWarning("Server image folder not found: {Path}", sourceFull);
+            return Task.FromResult(CreateImageFolderError(GetFolderDisplayName(sourceFull), "Folder not found"));
+        }
+
+        return ProcessImageFolderCoreAsync(info, sourceFull, GetFolderDisplayName(sourceFull), moveOriginals, ct);
+    }
+
+    public async Task<(EBookUploadProcessResult Result, IDictionary<string,string> Metadata, bool Cancelled, string? Error)> ProcessImageFolderUploadAsync(UploadRequest info, IFormFileCollection files, string? folderName, string? relativePathsJson, CancellationToken ct)
+    {
+        if (files is null || files.Count == 0)
+            return CreateImageFolderError(GetFolderDisplayName(folderName, info.Title), "No image files found in folder");
+
+        var workDir = Path.Combine(Path.GetTempPath(), $"temp_meta_imagefolder_{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(workDir);
+            var providedPaths = ParseRelativePaths(relativePathsJson, files.Count);
+            for (var i = 0; i < files.Count; i++)
+            {
+                var file = files[i];
+                var relative = i < providedPaths.Length ? providedPaths[i] : file.FileName;
+                if (!ArchiveComicInfoWriter.IsImageFile(relative))
+                    continue;
+                if (!TrySafeRelativePath(relative, out var safeRelative))
+                    continue;
+
+                var target = Path.Combine(workDir, safeRelative.Replace('/', Path.DirectorySeparatorChar));
+                var targetDir = Path.GetDirectoryName(target)!;
+                Directory.CreateDirectory(targetDir);
+                await using var dst = File.Create(target);
+                await file.CopyToAsync(dst, ct);
+            }
+
+            var displayName = GetFolderDisplayName(folderName, info.Title);
+            if (ImageFolderArchiver.GetImageFiles(workDir).Count == 0)
+                return CreateImageFolderError(displayName, "No image files found in folder");
+
+            return await ProcessImageFolderCoreAsync(info, workDir, displayName, moveOriginals: false, ct);
+        }
+        finally
+        {
+            MetadataTemp.Cleanup(workDir);
+        }
+    }
+
+    private async Task<(EBookUploadProcessResult Result, IDictionary<string,string> Metadata, bool Cancelled, string? Error)> ProcessImageFolderCoreAsync(
+        UploadRequest info,
+        string sourceFolder,
+        string folderDisplayName,
+        bool moveOriginals,
+        CancellationToken ct)
+    {
+        var images = ImageFolderArchiver.GetImageFiles(sourceFolder);
+        if (images.Count == 0)
+            return CreateImageFolderError(folderDisplayName, "No image files found in folder");
+
+        var displayName = GetFolderDisplayName(folderDisplayName, info.Title);
+        var fileName = Sanitize(displayName) + ".cbz";
+        return await ProcessCoreAsync(info, fileName, async (savePath, token) =>
+        {
+            var written = await ImageFolderArchiver.CreateCbzFromDirectoryAsync(sourceFolder, savePath, images, token);
+            if (written == 0)
+                throw new InvalidOperationException("No image files found in folder");
+            if (moveOriginals)
+                ImageFolderArchiver.DeleteSourceFiles(sourceFolder, images, savePath);
+        }, ct);
+    }
+
+    private static string[] ParseRelativePaths(string? json, int expectedCount)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return [];
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind != JsonValueKind.Array)
+                return [];
+            var paths = doc.RootElement.EnumerateArray().Select(e => e.GetString() ?? string.Empty).ToArray();
+            return paths.Length == expectedCount ? paths : [];
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
+    }
+
+    private static bool TrySafeRelativePath(string? relative, out string safePath)
+    {
+        safePath = string.Empty;
+        if (string.IsNullOrWhiteSpace(relative))
+            return false;
+        if (relative.Contains('\0'))
+            return false;
+
+        var normalized = relative.Replace('\\', '/').Trim().TrimStart('/');
+        if (normalized.Length == 0 || Path.IsPathRooted(normalized))
+            return false;
+
+        var segments = normalized.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Length == 0)
+            return false;
+
+        var safe = new List<string>(segments.Length);
+        foreach (var segment in segments)
+        {
+            if (segment is "." or "..")
+                return false;
+            var cleaned = Sanitize(segment).Trim();
+            if (cleaned.Length == 0 || cleaned is "." or ".." || cleaned.StartsWith('.') || cleaned.EndsWith('.'))
+                return false;
+            safe.Add(cleaned);
+        }
+
+        safePath = string.Join('/', safe);
+        return true;
+    }
+
+    private static string GetFolderDisplayName(string folderPath)
+    {
+        var trimmed = folderPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var name = Path.GetFileName(trimmed);
+        return string.IsNullOrWhiteSpace(name) ? trimmed : name;
+    }
+
+    private static string GetFolderDisplayName(string? folderName, string fallback)
+    {
+        var cleaned = Sanitize((folderName ?? string.Empty).Trim());
+        if (cleaned.Length == 0 || cleaned is "." or ".." || cleaned.StartsWith('.') || cleaned.EndsWith('.'))
+            return fallback;
+        return cleaned;
+    }
+
+    private static (EBookUploadProcessResult Result, IDictionary<string,string> Metadata, bool Cancelled, string? Error) CreateImageFolderError(string displayName, string error)
+    {
+        var fileName = Sanitize(string.IsNullOrWhiteSpace(displayName) ? "folder" : displayName) + ".cbz";
+        return (CreateErrorResult(fileName, error, EBookFormat.Cbz, new Dictionary<string,string>()), new Dictionary<string,string>(), false, error);
     }
 
     private async Task<(EBookUploadProcessResult Result, IDictionary<string,string> Metadata, bool Cancelled, string? Error)> ProcessCoreAsync(

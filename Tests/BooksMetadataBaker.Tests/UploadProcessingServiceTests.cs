@@ -1,3 +1,5 @@
+using System.IO.Compression;
+using System.Text.Json;
 using BooksMetadataBaker.Models;
 using BooksMetadataBaker.Services;
 using BooksMetadataBaker.Services.Abstract;
@@ -32,6 +34,31 @@ public class UploadProcessingServiceTests
         public void CopyTo(Stream target) => OpenReadStream().CopyTo(target);
         public Task CopyToAsync(Stream target, CancellationToken cancellationToken = default) =>
             OpenReadStream().CopyToAsync(target, cancellationToken);
+    }
+
+    private sealed class FakeFormFileCollection : List<IFormFile>, IFormFileCollection
+    {
+        public FakeFormFileCollection(IEnumerable<IFormFile> files) : base(files)
+        {
+        }
+
+        public string ContentType => string.Join(",", this.Select(f => f.ContentType));
+        public string ContentDisposition => string.Join(",", this.Select(f => f.ContentDisposition));
+        public IHeaderDictionary Headers => null!;
+        public long Length => this.Sum(f => f.Length);
+        public string Name => string.Join(",", this.Select(f => f.Name));
+        public string FileName => string.Join(",", this.Select(f => f.FileName));
+        public Stream OpenReadStream() => throw new NotSupportedException();
+        public void CopyTo(Stream target) => throw new NotSupportedException();
+        public Task CopyToAsync(Stream target, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        IFormFile? IFormFileCollection.this[string name] =>
+            this.FirstOrDefault(f => string.Equals(f.Name, name, StringComparison.OrdinalIgnoreCase));
+
+        IFormFile? IFormFileCollection.GetFile(string name) => ((IFormFileCollection)this)[name];
+
+        IReadOnlyList<IFormFile> IFormFileCollection.GetFiles(string name) =>
+            this.Where(f => string.Equals(f.Name, name, StringComparison.OrdinalIgnoreCase)).ToArray();
     }
 
     private sealed class FixedMetadataService : IAggregatedMetadataService
@@ -525,6 +552,175 @@ public class UploadProcessingServiceTests
             Assert.True(result.ComicInfoWritten);
             Assert.Equal(EBookFormat.Cbt, result.Format);
             Assert.True(File.Exists(Path.Combine(root, "Manga", "My Series", "My Series - Volume 1.cbt")));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ProcessServerImageFolder_CreatesCbzAndUsesComicPipeline()
+    {
+        var root = CreateTempDir();
+        var sourceParent = CreateTempDir();
+        var source = Path.Combine(sourceParent, "My Series");
+        var ebook = new RecordingEBookUpdater();
+        var kavita = new RecordingKavitaWriter();
+        var okAttempt = new EBookMetadataAttemptResult("x", EBookMetadataAttemptStage.ComicInfo, true, null, false, true, []);
+        try
+        {
+            Directory.CreateDirectory(source);
+            File.WriteAllText(Path.Combine(source, "01.jpg"), "one");
+            File.WriteAllText(Path.Combine(source, "02.png"), "two");
+
+            var svc = CreateService(root, ebook, new StubComicUpdater(okAttempt), kavita,
+                new Dictionary<string, string> { ["Title"] = "My Series" });
+
+            var (result, _, cancelled, error) = await svc.ProcessServerImageFolderAsync(
+                new UploadRequest { Title = "My Series", Type = BookType.Manga },
+                source, moveOriginals: false, CancellationToken.None);
+
+            Assert.Null(error);
+            Assert.False(cancelled);
+            Assert.True(result.Success);
+            Assert.True(result.ComicInfoWritten);
+            Assert.Equal(EBookFormat.Cbz, result.Format);
+            Assert.Equal(0, ebook.PipelineCalls);
+            Assert.Equal(1, kavita.Writes);
+
+            var expected = Path.Combine(root, "Manga", "My Series", "Specials", "My Series SP01.cbz");
+            Assert.True(File.Exists(expected));
+            using var zip = ZipFile.OpenRead(expected);
+            Assert.Equal(["01.jpg", "02.png"], zip.Entries.Select(e => e.FullName).OrderBy(n => n).ToArray());
+            Assert.True(File.Exists(Path.Combine(source, "01.jpg")));
+            Assert.True(File.Exists(Path.Combine(source, "02.png")));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+            Directory.Delete(sourceParent, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ProcessServerImageFolder_MoveOriginals_DeletesImagesAndEmptyDirs()
+    {
+        var root = CreateTempDir();
+        var sourceParent = CreateTempDir();
+        var source = Path.Combine(sourceParent, "My Series");
+        try
+        {
+            var sub = Path.Combine(source, "sub");
+            Directory.CreateDirectory(sub);
+            File.WriteAllText(Path.Combine(source, "01.jpg"), "one");
+            File.WriteAllText(Path.Combine(sub, "02.jpg"), "two");
+            File.WriteAllText(Path.Combine(source, "notes.txt"), "keep");
+
+            var svc = CreateService(root, new RecordingEBookUpdater(), new StubComicUpdater(
+                new EBookMetadataAttemptResult("x", EBookMetadataAttemptStage.ComicInfo, true, null, false, true, [])),
+                new RecordingKavitaWriter(), new Dictionary<string, string> { ["Title"] = "My Series" });
+
+            var (result, _, _, error) = await svc.ProcessServerImageFolderAsync(
+                new UploadRequest { Title = "My Series", Type = BookType.Manga },
+                source, moveOriginals: true, CancellationToken.None);
+
+            Assert.Null(error);
+            Assert.True(result.Success);
+            Assert.True(File.Exists(Path.Combine(root, "Manga", "My Series", "Specials", "My Series SP01.cbz")));
+            Assert.False(File.Exists(Path.Combine(source, "01.jpg")));
+            Assert.False(File.Exists(Path.Combine(sub, "02.jpg")));
+            Assert.False(Directory.Exists(sub));
+            Assert.True(File.Exists(Path.Combine(source, "notes.txt")));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+            Directory.Delete(sourceParent, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ProcessServerImageFolder_NoImages_ReturnsError()
+    {
+        var root = CreateTempDir();
+        var source = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(source, "notes.txt"), "x");
+            var svc = CreateService(root, new RecordingEBookUpdater(), new StubComicUpdater(),
+                new RecordingKavitaWriter(), new Dictionary<string, string> { ["Title"] = "My Series" });
+
+            var (result, _, _, error) = await svc.ProcessServerImageFolderAsync(
+                new UploadRequest { Title = "My Series", Type = BookType.Manga },
+                source, moveOriginals: false, CancellationToken.None);
+
+            Assert.False(result.Success);
+            Assert.Equal("No image files found in folder", result.ErrorMessage);
+            Assert.Equal("No image files found in folder", error);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+            Directory.Delete(source, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ProcessImageFolderUpload_StagesFilesAndCreatesCbz()
+    {
+        var root = CreateTempDir();
+        try
+        {
+            var files = new FakeFormFileCollection(new IFormFile[]
+            {
+                new FakeFormFile("01.jpg", [1]),
+                new FakeFormFile("02.jpg", [2])
+            });
+            var svc = CreateService(root, new RecordingEBookUpdater(), new StubComicUpdater(
+                new EBookMetadataAttemptResult("x", EBookMetadataAttemptStage.ComicInfo, true, null, false, true, [])),
+                new RecordingKavitaWriter(), new Dictionary<string, string> { ["Title"] = "My Series" });
+
+            var (result, _, cancelled, error) = await svc.ProcessImageFolderUploadAsync(
+                new UploadRequest { Title = "My Series", Type = BookType.Manga },
+                files, "My Series", JsonSerializer.Serialize(new[] { "01.jpg", "sub/02.jpg" }), CancellationToken.None);
+
+            Assert.Null(error);
+            Assert.False(cancelled);
+            Assert.True(result.Success);
+            Assert.True(result.ComicInfoWritten);
+
+            var expected = Path.Combine(root, "Manga", "My Series", "Specials", "My Series SP01.cbz");
+            Assert.True(File.Exists(expected));
+            using var zip = ZipFile.OpenRead(expected);
+            Assert.Equal(["01.jpg", "sub/02.jpg"], zip.Entries.Select(e => e.FullName).OrderBy(n => n).ToArray());
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ProcessImageFolderUpload_NoImages_ReturnsError()
+    {
+        var root = CreateTempDir();
+        try
+        {
+            var files = new FakeFormFileCollection(new IFormFile[]
+            {
+                new FakeFormFile("notes.txt", [1])
+            });
+            var svc = CreateService(root, new RecordingEBookUpdater(), new StubComicUpdater(),
+                new RecordingKavitaWriter(), new Dictionary<string, string> { ["Title"] = "My Series" });
+
+            var (result, _, _, error) = await svc.ProcessImageFolderUploadAsync(
+                new UploadRequest { Title = "My Series", Type = BookType.Manga },
+                files, "My Series", JsonSerializer.Serialize(new[] { "notes.txt" }), CancellationToken.None);
+
+            Assert.False(result.Success);
+            Assert.Equal("No image files found in folder", result.ErrorMessage);
+            Assert.Equal("No image files found in folder", error);
         }
         finally
         {

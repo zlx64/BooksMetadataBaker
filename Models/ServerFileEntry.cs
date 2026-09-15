@@ -9,4 +9,5 @@ public sealed record ServerFileEntry(
     string Path,
     bool IsDir,
     long Size,
-    bool Selectable);
+    bool Selectable,
+    bool HasImages = false);

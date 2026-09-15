@@ -1,3 +1,4 @@
+using BooksMetadataBaker.Services.Comic;
 using BooksMetadataBaker.Services.Helpers;
 
 namespace BooksMetadataBaker.Controllers;
@@ -41,6 +42,41 @@ public class UploadController(IUploadProcessingService processor, IConfiguration
         if (error != null && string.IsNullOrWhiteSpace(result.File))
         {
             logger.LogWarning("Upload rejected: {Error}", error);
+            return StatusCode(500, "Internal server error");
+        }
+
+        return Ok(new { Files = new[] { result }, Metadata = metadata, Cancelled = cancelled });
+    }
+
+    [HttpPost("image-folder")]
+    [RequestSizeLimit(MaxFileSize)]
+    [EnableRateLimiting("upload")]
+    public async Task<IActionResult> UploadImageFolder(
+        [FromForm] UploadRequest info,
+        [FromForm] string? folderName,
+        [FromForm] string? paths,
+        IFormFileCollection? files,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(info.Title))
+            return BadRequest("Title required");
+
+        if (!mangaComicsEnabled)
+            return BadRequest("Manga/comics uploads are disabled");
+
+        if (files is null || files.Count == 0)
+            return BadRequest("Image folder required");
+
+        if (!files.Any(file => ArchiveComicInfoWriter.IsImageFile(file.FileName)))
+            return BadRequest("No image files found in folder");
+
+        if (files.Sum(file => file.Length) > MaxFileSize)
+            return BadRequest("Folder is too large (max 500 MB)");
+
+        var (result, metadata, cancelled, error) = await processor.ProcessImageFolderUploadAsync(info, files, folderName, paths, ct);
+        if (error != null && string.IsNullOrWhiteSpace(result.File))
+        {
+            logger.LogWarning("Image folder upload rejected: {Error}", error);
             return StatusCode(500, "Internal server error");
         }
 
